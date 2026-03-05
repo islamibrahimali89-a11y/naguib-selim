@@ -23,8 +23,10 @@
   --sh:0 4px 24px rgba(30,79,163,0.12);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm)}
+html,body{height:100%;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm);overscroll-behavior:none;overscroll-behavior-y:none}
 body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%,transparent 50%),radial-gradient(ellipse at 0% 100%,rgba(30,79,163,0.04) 0%,transparent 50%)}
+/* Fix 1: prevent pull-to-refresh and bounce-exit on iOS/Android */
+.content{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
 
 /* SCREENS */
 .screen{display:none;height:100vh;overflow:hidden;flex-direction:column}
@@ -303,11 +305,11 @@ const CLD_PRESET = 'naguib_selim';
           <div class="fg"><div class="fl">تاريخ المعاينة</div><input class="fi" id="a-vd" type="date"></div>
           <div class="fg"><div class="fl">الوقت</div><input class="fi" id="a-vt" type="time"></div>
         </div>
-        <!-- P2 FIX: GPS button removed — coordinates via paste or manual input only -->
+        <!-- FIX 3: إدخال الموقع فقط برابط Google Maps - لا إحداثيات يدوية -->
         <div class="fg">
-          <div class="fl">📍 موقع العميل</div>
+          <div class="fl">📍 موقع العميل (رابط Google Maps)</div>
           <input class="fi" id="a-crd-paste" placeholder="📋 الصق رابط Google Maps هنا..." style="width:100%;margin-bottom:6px" onpaste="setTimeout(()=>parseGoogleMapsLink(this.value),50)" oninput="parseGoogleMapsLink(this.value)">
-          <input class="fi" id="a-crd" placeholder="أو أدخل إحداثيات: 30.0444, 31.2357" style="width:100%" oninput="onCoordsInput(this.value)">
+          <input type="hidden" id="a-crd">
           <div id="a-crd-msg" style="font-size:0.75rem;margin-top:5px;display:none"></div>
         </div>
         <div class="mapwrap" id="a-mapwrap" style="display:none"><iframe id="a-mframe" allowfullscreen></iframe></div>
@@ -641,7 +643,7 @@ async function initAdmin() {
   await loadAllData();
   initAdminDash();
   populateTechSelect();
-  setInterval(async () => { await loadAllData(); initAdminDash(); checkOffline(); }, 30000);
+  setInterval(async () => { await loadAllData(); initAdminDash(); checkOffline(); }, 15000);
 }
 
 async function loadAllData() {
@@ -688,7 +690,9 @@ function renderTechCards() {
         <div class="tcs"><div class="tcs-n c-ora">${todayIns.filter(r=>r.status==='pending').length}</div><div class="tcs-l">انتظار</div></div>
       </div>
       <div class="tc-lastseen">⏰ ${u.last_seen ? timeAgo(u.last_seen) : 'لم يُسجّل دخول'}
-        ${u.lat ? ` · 📍 ${parseFloat(u.lat).toFixed(4)}, ${parseFloat(u.lng).toFixed(4)}` : ''}
+        ${u.lat && u.lng
+          ? ` · <a href="https://www.google.com/maps?q=${u.lat},${u.lng}" target="_blank" style="color:#2563c4;text-decoration:none;font-weight:700">📍 ${parseFloat(u.lat).toFixed(5)}, ${parseFloat(u.lng).toFixed(5)}</a>`
+          : ' · <span style="color:#dc2626">لا يوجد موقع بعد</span>'}
       </div>
     </div>`;
   }).join('');
@@ -755,15 +759,32 @@ function buildCard(r, isAdmin) {
   const arrivedBtn = !isAdmin ? (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>` : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`) : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍وصل: ${fmtTime(r.arrived_at)}</span>` : '');
   const updBtn = !isAdmin ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>` : '';
   const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
-  const locHtml = r.coords && !isAdmin
-    ? `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:8px 10px;margin-bottom:7px">
-        <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📍 موقع العميل</div>
-        <div style="font-size:0.8rem;font-weight:700;color:#1e293b;font-family:'Tajawal',sans-serif;margin-bottom:6px;word-break:break-all">${r.coords}</div>
-        <a href="https://www.google.com/maps?q=${r.coords.replace(/ /g,'')}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;background:#2563c4;border-radius:6px;padding:5px 12px;font-size:0.77rem;color:#fff;text-decoration:none;font-weight:700">🗺️ فتح في Google Maps</a>
-      </div>`
+
+  // FIX 5: رقم unique لكل معاينة — آخر 5 أرقام من الـ ID
+  const inspNum = String(r.id).slice(-5);
+  const numBadge = `<span style="display:inline-flex;align-items:center;background:#1e3a8a;color:#fff;border-radius:6px;padding:2px 8px;font-size:0.7rem;font-weight:900;font-family:'Tajawal',sans-serif;letter-spacing:1px">#${inspNum}</span>`;
+
+  // FIX 4: الموقع يظهر للفني كرابط مباشر يفتح Google Maps
+  const locHtml = r.coords
+    ? (isAdmin
+        ? `<div style="font-size:0.74rem;color:#2563c4;margin-bottom:6px">📍 <span style="color:#64748b">${r.coords}</span></div>`
+        : `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.25);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+            <div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;font-weight:600">📍 موقع العميل</div>
+            <a href="https://www.google.com/maps?q=${encodeURIComponent(r.coords)}" target="_blank"
+               style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#1e4fa3,#2563c4);border-radius:9px;padding:10px;font-size:0.85rem;color:#fff;text-decoration:none;font-weight:700;box-shadow:0 3px 10px rgba(37,99,196,0.3)">
+              🗺️ فتح الموقع في Google Maps
+            </a>
+          </div>`)
     : '';
+
   return `<div class="icard">
-    <div class="ic-top"><div><div class="ic-name">${r.client_name}</div><div class="ic-phone">📞 ${r.phone}</div></div><span class="stbadge ${bc}">${bl}</span></div>
+    <div class="ic-top">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:6px">${numBadge}<div class="ic-name">${r.client_name}</div></div>
+        <div class="ic-phone">📞 ${r.phone}</div>
+      </div>
+      <span class="stbadge ${bc}">${bl}</span>
+    </div>
     <div class="ic-addr">🏠 ${r.address}</div>
     ${locHtml}
     ${winsHtml ? `<div style="margin-bottom:7px">${winsHtml}</div>` : ''}
@@ -833,7 +854,7 @@ async function saveInspection() {
 }
 
 function resetAdminForm() {
-  ['a-cn','a-cp','a-ca','a-crd','a-crd-paste','a-nt','a-wins'].forEach(id => document.getElementById(id).value = '');
+  ['a-cn','a-cp','a-ca','a-crd','a-crd-paste','a-nt','a-wins'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   const msg = document.getElementById('a-crd-msg'); if(msg) msg.style.display='none';
   document.getElementById('a-vd').value = new Date().toISOString().split('T')[0];
   document.getElementById('a-vt').value = '';
@@ -965,8 +986,10 @@ async function renderTechHist() {
 }
 
 // ============================================
-// TRACKING
+// TRACKING — FIX 6: دقة عالية + تحديث كل 15 ثانية
 // ============================================
+let _watchId = null;
+
 function toggleTracking() {
   isTracking ? stopTracking() : startTracking();
 }
@@ -978,13 +1001,39 @@ function startTracking() {
   document.getElementById('t-trkicon').textContent = '⏹️';
   document.getElementById('t-trklbl').textContent = 'إيقاف التتبع';
   document.getElementById('t-loccrd').style.display = 'block';
-  doGPS();
-  trackInterval = setInterval(doGPS, 30000);
+
+  // FIX 6: watchPosition بدلاً من setInterval — أدق وأسرع
+  _watchId = navigator.geolocation.watchPosition(
+    async pos => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = Math.round(pos.coords.accuracy);
+      await sb.from('technicians').update({
+        lat, lng,
+        online: true,
+        last_seen: Date.now()
+      }).eq('id', CU.id);
+      document.getElementById('t-coords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      document.getElementById('t-lupd').textContent = `⏰ آخر تحديث: ${new Date().toLocaleTimeString('ar-EG')} · دقة: ${acc}م`;
+    },
+    err => {
+      console.warn('GPS error:', err.message);
+      showToast('⚠️ تعذّر الحصول على الموقع');
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+
+  // FIX 6: ping كل 15 ثانية للـ online status حتى لو الموقع ماتغيرش
+  trackInterval = setInterval(async () => {
+    await sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
+  }, 15000);
+
   showToast('📡 التتبع المباشر مفعّل');
 }
 
 function stopTracking() {
   isTracking = false;
+  if (_watchId !== null) { navigator.geolocation.clearWatch(_watchId); _watchId = null; }
   clearInterval(trackInterval);
   document.getElementById('t-trkbtn').className = 'trk-btn trk-on';
   document.getElementById('t-trkicon').textContent = '📡';
@@ -998,10 +1047,9 @@ async function doGPS() {
   navigator.geolocation.getCurrentPosition(async pos => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
     await sb.from('technicians').update({ lat, lng, online: true, last_seen: Date.now() }).eq('id', CU.id);
-    document.getElementById('t-coords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    document.getElementById('t-coords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     document.getElementById('t-lupd').textContent = '⏰ آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
-  }, () => sb.from('technicians').update({ online: false }).eq('id', CU.id),
-  { enableHighAccuracy: true, timeout: 10000 });
+  }, () => {}, { enableHighAccuracy: true, timeout: 10000 });
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && isTracking) doGPS(); });
@@ -1341,6 +1389,20 @@ window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); dPr = 
 document.getElementById('ip-yes').addEventListener('click', () => { if(dPr){dPr.prompt();dPr=null;} document.getElementById('install-bar').classList.remove('show'); });
 document.querySelectorAll('.modal-ov').forEach(o => o.addEventListener('click', e => { if(e.target===o) o.classList.remove('open'); }));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+// FIX 2: منع الخروج من التطبيق إلا بزر تسجيل الخروج
+window.addEventListener('beforeunload', e => { if (CU) { e.preventDefault(); e.returnValue = ''; } });
+// منع pull-to-refresh في المتصفح
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+let _lastY = 0;
+document.addEventListener('touchstart', e => { _lastY = e.touches[0].clientY; }, { passive: true });
+document.addEventListener('touchmove', e => {
+  const el = e.target.closest('.content');
+  if (!el) { e.preventDefault(); return; }
+  const atTop = el.scrollTop <= 0;
+  const goingDown = e.touches[0].clientY > _lastY;
+  if (atTop && goingDown) e.preventDefault();
+}, { passive: false });
 </script>
 </body>
 </html>
