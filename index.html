@@ -283,10 +283,15 @@ const LOGO_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
         </div>
         <div class="fg">
           <div class="fl">📍 موقع العميل</div>
-          <div style="display:flex;gap:7px">
-            <input class="fi" id="a-crd" placeholder="30.0444, 31.2357" style="flex:1" readonly>
-            <button class="btn btn-green" style="padding:9px 11px;white-space:nowrap" onclick="getLocAdmin()">🎯 GPS</button>
+          <div style="display:flex;gap:7px;margin-bottom:7px">
+            <input class="fi" id="a-crd-paste" placeholder="الصق رابط Google Maps هنا..." style="flex:1" oninput="parseGoogleMapsLink(this.value)">
+            <button class="btn btn-green" style="padding:9px 11px;white-space:nowrap" onclick="parseGoogleMapsLink(document.getElementById('a-crd-paste').value)">📌 استخرج</button>
           </div>
+          <div style="display:flex;gap:7px;align-items:center">
+            <input class="fi" id="a-crd" placeholder="أو أدخل: 30.0444, 31.2357" style="flex:1" oninput="onCoordsInput(this.value)">
+            <button class="btn btn-out2" style="padding:9px 11px;white-space:nowrap;font-size:0.78rem" onclick="getLocAdmin()">🎯 GPS</button>
+          </div>
+          <div id="a-crd-msg" style="font-size:0.75rem;margin-top:5px;display:none"></div>
         </div>
         <div class="mapwrap" id="a-mapwrap" style="display:none"><iframe id="a-mframe" allowfullscreen></iframe></div>
       </div>
@@ -786,7 +791,8 @@ async function saveInspection() {
 }
 
 function resetAdminForm() {
-  ['a-cn','a-cp','a-ca','a-crd','a-nt','a-wins'].forEach(id => document.getElementById(id).value = '');
+  ['a-cn','a-cp','a-ca','a-crd','a-crd-paste','a-nt','a-wins'].forEach(id => document.getElementById(id).value = '');
+  const msg = document.getElementById('a-crd-msg'); if(msg) msg.style.display='none';
   document.getElementById('a-vd').value = new Date().toISOString().split('T')[0];
   document.getElementById('a-vt').value = '';
   document.getElementById('a-st').value = 'pending';
@@ -796,14 +802,65 @@ function resetAdminForm() {
   document.getElementById('a-mapwrap').style.display = 'none';
 }
 
+function parseGoogleMapsLink(val) {
+  if (!val || val.length < 5) return;
+  let lat = null, lng = null;
+
+  // Pattern 1: @lat,lng (most common in share links)
+  let m = val.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); }
+
+  // Pattern 2: q=lat,lng
+  if (!lat) { m = val.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
+
+  // Pattern 3: ll=lat,lng
+  if (!lat) { m = val.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
+
+  // Pattern 4: /place/... with coords
+  if (!lat) { m = val.match(/place\/[^/]*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
+
+  // Pattern 5: maps?q=name&... try destination
+  if (!lat) { m = val.match(/destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
+
+  if (lat && lng && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+    setCoords(lat.toFixed(6), lng.toFixed(6), '✅ تم استخراج الموقع من الرابط');
+  } else {
+    showCrdMsg('⚠️ تعذّر استخراج الإحداثيات — جرب نسخ الرابط من زرار "مشاركة" في Google Maps', 'red');
+  }
+}
+
+function onCoordsInput(val) {
+  // Accept: "30.0444, 31.2357" or "30.0444,31.2357"
+  const m = val.trim().match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (m) {
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      setCoords(lat.toFixed(6), lng.toFixed(6), '✅ إحداثيات صحيحة');
+    }
+  }
+}
+
+function setCoords(lat, lng, msg) {
+  document.getElementById('a-crd').value = lat + ', ' + lng;
+  document.getElementById('a-mapwrap').style.display = 'block';
+  document.getElementById('a-mframe').src = `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
+  showCrdMsg(msg, 'green');
+}
+
+function showCrdMsg(msg, color) {
+  const el = document.getElementById('a-crd-msg');
+  el.style.display = 'block';
+  el.style.color = color === 'green' ? '#16a34a' : '#dc2626';
+  el.textContent = msg;
+  if (color === 'green') setTimeout(() => el.style.display = 'none', 3000);
+}
+
 function getLocAdmin() {
-  if (!navigator.geolocation) return;
+  if (!navigator.geolocation) { showToast('⚠️ الجهاز لا يدعم GPS'); return; }
+  showToast('⏳ جاري تحديد موقعك...');
   navigator.geolocation.getCurrentPosition(pos => {
     const lat = pos.coords.latitude.toFixed(6), lng = pos.coords.longitude.toFixed(6);
-    document.getElementById('a-crd').value = lat + ', ' + lng;
-    document.getElementById('a-mapwrap').style.display = 'block';
-    document.getElementById('a-mframe').src = `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
-    showToast('✅ تم تحديد الموقع');
+    setCoords(lat, lng, '✅ تم تحديد موقعك الحالي (GPS)');
   }, () => showToast('⚠️ تعذّر تحديد الموقع'));
 }
 
