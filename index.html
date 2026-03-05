@@ -339,6 +339,39 @@ const LOGO_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
       </div>
       <div id="a-listcon"></div>
     </div>
+    <div class="panel" id="ap-report">
+      <div class="divider"><h2>📊 تقرير المعاينات</h2></div>
+      <div class="card">
+        <div class="ctitle">🔍 فلترة التقرير</div>
+        <div class="frow">
+          <div class="fg"><div class="fl">من تاريخ</div><input class="fi" type="date" id="rp-from"></div>
+          <div class="fg"><div class="fl">إلى تاريخ</div><input class="fi" type="date" id="rp-to"></div>
+        </div>
+        <div class="frow">
+          <div class="fg"><div class="fl">الفني</div>
+            <select class="fs" id="rp-tech">
+              <option value="">كل الفنيين</option>
+            </select>
+          </div>
+          <div class="fg"><div class="fl">الحالة</div>
+            <select class="fs" id="rp-st">
+              <option value="">كل الحالات</option>
+              <option value="pending">انتظار</option>
+              <option value="complete">تامة</option>
+              <option value="refused">رفض</option>
+              <option value="postponed">تأجيل</option>
+              <option value="cancelled">إلغاء</option>
+            </select>
+          </div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-out2" onclick="renderReport()">🔍 عرض التقرير</button>
+          <button class="btn btn-gold" onclick="exportCSV()">⬇️ تصدير Excel/CSV</button>
+        </div>
+      </div>
+      <div id="rp-summary" style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:12px"></div>
+      <div id="rp-list"></div>
+    </div>
     <div class="panel" id="ap-users">
       <div class="divider"><h2>إضافة فني جديد</h2></div>
       <div class="card">
@@ -357,6 +390,7 @@ const LOGO_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
     <div class="nav-item active" onclick="aTab('dash',this)"><div class="nav-icon">📊</div>الرئيسية</div>
     <div class="nav-item" onclick="aTab('add',this)"><div class="nav-icon">➕</div>إضافة</div>
     <div class="nav-item" onclick="aTab('list',this)"><div class="nav-icon">📋</div>المعاينات</div>
+    <div class="nav-item" onclick="aTab('report',this)"><div class="nav-icon">📈</div>تقارير</div>
     <div class="nav-item" onclick="aTab('users',this)"><div class="nav-icon">👥</div>الفنيون</div>
   </nav>
 </div>
@@ -523,6 +557,7 @@ function aTab(name, el) {
   if (name === 'list') renderAdminList();
   if (name === 'dash') initAdminDash();
   if (name === 'users') renderUsers();
+  if (name === 'report') initReport();
 }
 
 function tTab(name, el) {
@@ -655,13 +690,14 @@ function buildCard(r, isAdmin) {
   const fHtml = files.length ? files.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:var(--g5);text-decoration:none;margin-left:5px">📎${f.name?.substring(0,14)||'ملف'}</a>`).join('') : '';
   const trkBtn = r.coords && isAdmin ? `<button class="btn btn-out2" style="padding:4px 9px;font-size:0.73rem" onclick="showClientMap(${r.id})">📍</button>` : '';
   const delBtn = isAdmin ? `<button class="btn btn-red" style="padding:4px 9px;font-size:0.73rem" onclick="delInsp(${r.id})">🗑️</button>` : '';
+  const arrivedBtn = !isAdmin ? (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>` : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`) : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍وصل: ${fmtTime(r.arrived_at)}</span>` : '');
   const updBtn = !isAdmin ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>` : '';
   return `<div class="icard">
     <div class="ic-top"><div><div class="ic-name">${r.client_name}</div><div class="ic-phone">📞 ${r.phone}</div></div><span class="stbadge ${bc}">${bl}</span></div>
     <div class="ic-addr">🏠 ${r.address}</div>
     ${r.notes ? `<div style="font-size:0.76rem;color:var(--td);margin-bottom:7px">📝 ${r.notes}</div>` : ''}
     ${fHtml ? `<div style="margin-bottom:7px">${fHtml}</div>` : ''}
-    <div class="ic-foot"><span class="ic-tech">👷 ${r.tech_name||'—'} · ${r.visit_date||'—'} ${r.visit_time||''}</span><div style="display:flex;gap:5px">${trkBtn}${delBtn}${updBtn}</div></div>
+    <div class="ic-foot"><span class="ic-tech">👷 ${r.tech_name||'—'} · ${r.visit_date||'—'} ${r.visit_time||''}</span><div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">${trkBtn}${arrivedBtn}${delBtn}${updBtn}</div></div>
   </div>`;
 }
 
@@ -896,11 +932,15 @@ async function saveUpdate() {
   const uploadedLinks = await uploadAllFiles('um');
   const r = allInspections.find(x => x.id === activeUpdateId);
   const existingFiles = r?.files || [];
-  const { error } = await sb.from('inspections').update({
-    status: document.getElementById('um-st').value,
+  const newStatus = document.getElementById('um-st').value;
+  const statusChanged = r?.status !== newStatus;
+  const updateData = {
+    status: newStatus,
     notes: document.getElementById('um-nt').value.trim(),
     files: [...existingFiles, ...uploadedLinks]
-  }).eq('id', activeUpdateId);
+  };
+  if (statusChanged) updateData.status_changed_at = new Date().toISOString();
+  const { error } = await sb.from('inspections').update(updateData).eq('id', activeUpdateId);
   btn.disabled = false; btn.textContent = '💾 حفظ التحديث';
   if (error) { showToast('❌ خطأ: ' + error.message); return; }
   closeModal('mod-update');
@@ -984,6 +1024,123 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ============================================
+// ARRIVED
+// ============================================
+async function markArrived(id) {
+  const now = new Date().toISOString();
+  const { error } = await sb.from('inspections').update({ arrived_at: now }).eq('id', id);
+  if (error) { showToast('❌ خطأ: ' + error.message); return; }
+  await loadAllData();
+  renderTechToday();
+  showToast('📍 تم تسجيل الوصول');
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('ar-EG', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+// ============================================
+// REPORTS
+// ============================================
+function initReport() {
+  const today = new Date().toISOString().split('T')[0];
+  const firstDay = today.substring(0,7) + '-01';
+  document.getElementById('rp-from').value = firstDay;
+  document.getElementById('rp-to').value = today;
+  const sel = document.getElementById('rp-tech');
+  sel.innerHTML = '<option value="">كل الفنيين</option>' +
+    allUsers.filter(u => u.role === 'tech').map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  renderReport();
+}
+
+function getReportData() {
+  const from = document.getElementById('rp-from').value;
+  const to = document.getElementById('rp-to').value;
+  const tech = document.getElementById('rp-tech').value;
+  const st = document.getElementById('rp-st').value;
+  return allInspections.filter(r => {
+    const d = r.visit_date || r.created_at?.substring(0,10) || '';
+    return (!from || d >= from) && (!to || d <= to) && (!tech || r.tech_user === tech) && (!st || r.status === st);
+  });
+}
+
+function renderReport() {
+  const data = getReportData();
+  const sm = { complete:'✅ تامة', refused:'❌ رفض', postponed:'⏸️ تأجيل', cancelled:'🚫 إلغاء', pending:'🕐 انتظار' };
+  const sc = { complete:0, refused:0, postponed:0, cancelled:0, pending:0 };
+  data.forEach(r => { if (sc[r.status] !== undefined) sc[r.status]++; });
+  document.getElementById('rp-summary').innerHTML = `
+    <div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.12);border-radius:11px;padding:11px;text-align:center;grid-column:span 2">
+      <div style="font-size:2rem;font-weight:900;color:#1e3a8a">${data.length}</div>
+      <div style="font-size:0.77rem;color:#64748b">إجمالي المعاينات</div>
+    </div>
+    <div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:9px;padding:10px;text-align:center">
+      <div style="font-size:1.5rem;font-weight:900;color:#16a34a">${sc.complete}</div><div style="font-size:0.72rem;color:#64748b">تامة</div>
+    </div>
+    <div style="background:#fef2f2;border:1px solid rgba(220,38,38,0.2);border-radius:9px;padding:10px;text-align:center">
+      <div style="font-size:1.5rem;font-weight:900;color:#dc2626">${sc.refused}</div><div style="font-size:0.72rem;color:#64748b">رفض</div>
+    </div>
+    <div style="background:#fff7ed;border:1px solid rgba(234,88,12,0.2);border-radius:9px;padding:10px;text-align:center">
+      <div style="font-size:1.5rem;font-weight:900;color:#ea580c">${sc.postponed}</div><div style="font-size:0.72rem;color:#64748b">تأجيل</div>
+    </div>
+    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:9px;padding:10px;text-align:center">
+      <div style="font-size:1.5rem;font-weight:900;color:#1e4fa3">${sc.pending}</div><div style="font-size:0.72rem;color:#64748b">انتظار</div>
+    </div>`;
+
+  const stBadge = { complete:'st-complete', refused:'st-refused', postponed:'st-postponed', cancelled:'st-cancelled', pending:'st-pending' };
+  document.getElementById('rp-list').innerHTML = data.length ? data.map(r => `
+    <div style="background:#fff;border:1px solid rgba(30,79,163,0.1);border-radius:11px;padding:13px;margin-bottom:8px;box-shadow:0 1px 5px rgba(30,79,163,0.06)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:7px">
+        <div>
+          <div style="font-weight:700;color:#1e293b;font-size:0.93rem">${r.client_name}</div>
+          <div style="font-size:0.76rem;color:#2563c4">📞 ${r.phone}</div>
+        </div>
+        <span class="stbadge ${stBadge[r.status]||'st-pending'}">${sm[r.status]||'انتظار'}</span>
+      </div>
+      <div style="font-size:0.76rem;color:#64748b;margin-bottom:6px">🏠 ${r.address}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:0.73rem">
+        <div style="background:#f8faff;border-radius:6px;padding:6px"><span style="color:#94a3b8">👷 الفني</span><br><strong style="color:#1e293b">${r.tech_name||'—'}</strong></div>
+        <div style="background:#f8faff;border-radius:6px;padding:6px"><span style="color:#94a3b8">📅 الموعد</span><br><strong style="color:#1e293b">${r.visit_date||'—'} ${r.visit_time||''}</strong></div>
+        <div style="background:${r.arrived_at?'#f0fdf4':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">📍 وصل</span><br><strong style="color:${r.arrived_at?'#16a34a':'#94a3b8'}">${r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل'}</strong></div>
+        <div style="background:${r.status_changed_at?'#f0f4ff':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">🔄 تغيير الحالة</span><br><strong style="color:${r.status_changed_at?'#1e4fa3':'#94a3b8'}">${r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يُغيَّر'}</strong></div>
+      </div>
+      ${r.notes ? `<div style="margin-top:7px;font-size:0.75rem;color:#64748b;background:#f8faff;border-radius:6px;padding:6px">📝 ${r.notes}</div>` : ''}
+    </div>`).join('') : '<div class="empty"><div class="ei">📊</div><p>لا توجد بيانات للفترة المحددة</p></div>';
+}
+
+function exportCSV() {
+  const data = getReportData();
+  if (!data.length) { showToast('⚠️ لا توجد بيانات للتصدير'); return; }
+  const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
+  const headers = ['م','اسم العميل','الهاتف','العنوان','الفني','تاريخ الموعد','الوقت','الحالة','وقت الوصول','وقت تغيير الحالة','الملاحظات','تاريخ الإنشاء'];
+  const rows = data.map((r, i) => [
+    i + 1,
+    r.client_name || '',
+    r.phone || '',
+    r.address || '',
+    r.tech_name || '',
+    r.visit_date || '',
+    r.visit_time || '',
+    sm[r.status] || '',
+    r.arrived_at ? fmtTime(r.arrived_at) : '',
+    r.status_changed_at ? fmtTime(r.status_changed_at) : '',
+    (r.notes || '').replace(/,/g, '،'),
+    r.created_at ? fmtTime(r.created_at) : ''
+  ]);
+  const csvContent = '\uFEFF' + [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `تقرير-نجيب-سليم-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ تم تصدير ' + data.length + ' معاينة');
 }
 
 // PWA
