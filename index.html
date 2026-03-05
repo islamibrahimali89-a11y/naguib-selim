@@ -23,10 +23,10 @@
   --sh:0 4px 24px rgba(30,79,163,0.12);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm);overscroll-behavior:none;overscroll-behavior-y:none}
+html,body{height:100%;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm)}
 body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%,transparent 50%),radial-gradient(ellipse at 0% 100%,rgba(30,79,163,0.04) 0%,transparent 50%)}
-/* Fix 1: prevent pull-to-refresh and bounce-exit on iOS/Android */
-.content{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+/* SCROLL FIX: allow normal inner scroll, block only outer overscroll */
+.content{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 
 /* SCREENS */
 .screen{display:none;height:100vh;overflow:hidden;flex-direction:column}
@@ -753,29 +753,63 @@ function buildCard(r, isAdmin) {
   const sm = { complete:['st-complete','✅ تامة'], refused:['st-refused','❌ رفض'], postponed:['st-postponed','⏸️ تأجيل'], cancelled:['st-cancelled','🚫 إلغاء'], pending:['st-pending','🕐 انتظار'] };
   const [bc, bl] = sm[r.status] || sm.pending;
   const files = r.files || [];
-  const fHtml = files.length ? files.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#2563c4;text-decoration:none;margin-left:5px">📎${f.name?.substring(0,14)||'ملف'}</a>`).join('') : '';
+
+  // ميعاد المعاينة — box منفصل للفني
+  const timeBox = (!isAdmin && r.visit_date)
+    ? `<div style="background:linear-gradient(135deg,#1e3a8a,#2563c4);border-radius:10px;padding:9px 13px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:0.7rem;color:rgba(255,255,255,0.75);margin-bottom:2px">📅 موعد المعاينة</div>
+          <div style="font-size:0.95rem;font-weight:900;color:#fff;font-family:'Tajawal',sans-serif">${r.visit_date}${r.visit_time ? ' — ' + r.visit_time : ''}</div>
+        </div>
+        <div style="font-size:1.8rem;opacity:0.4">🗓️</div>
+      </div>`
+    : '';
+
+  // الموقع — يشتغل سواء كان إحداثيات (30.xx, 31.xx) أو رابط Google Maps مباشر
+  let locHtml = '';
+  if (r.coords) {
+    const isRawLink = r.coords.includes('http') || r.coords.includes('maps');
+    const mapsUrl = isRawLink
+      ? r.coords
+      : `https://www.google.com/maps?q=${encodeURIComponent(r.coords)}`;
+
+    if (isAdmin) {
+      locHtml = `<div style="font-size:0.74rem;color:#2563c4;margin-bottom:6px;word-break:break-all">📍 <a href="${mapsUrl}" target="_blank" style="color:#2563c4">${isRawLink ? 'رابط الموقع' : r.coords}</a></div>`;
+    } else {
+      locHtml = `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.25);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+          <div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;font-weight:600">📍 موقع العميل</div>
+          <a href="${mapsUrl}" target="_blank"
+             style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#1e4fa3,#2563c4);border-radius:9px;padding:10px;font-size:0.85rem;color:#fff;text-decoration:none;font-weight:700;box-shadow:0 3px 10px rgba(37,99,196,0.3)">
+            🗺️ فتح الموقع في Google Maps
+          </a>
+        </div>`;
+    }
+  }
+
+  // صور مرفقة — admin يقدر يعمل extract (تحميل كلها)
+  const images = files.filter(f => f.type && f.type.includes('image'));
+  const pdfs   = files.filter(f => !f.type || !f.type.includes('image'));
+  const fHtml = files.length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px">
+        ${pdfs.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#2563c4;text-decoration:none;background:#f0f4ff;border:1px solid rgba(37,99,196,0.2);border-radius:6px;padding:3px 8px">📄 ${(f.name||'PDF').substring(0,14)}</a>`).join('')}
+        ${images.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#16a34a;text-decoration:none;background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:6px;padding:3px 8px">🖼️ ${(f.name||'صورة').substring(0,14)}</a>`).join('')}
+        ${isAdmin && images.length > 0 ? `<button class="btn btn-out2" style="padding:3px 9px;font-size:0.72rem" onclick="extractImages(${r.id})">⬇️ تحميل الصور (${images.length})</button>` : ''}
+      </div>`
+    : '';
+
   const trkBtn = r.coords && isAdmin ? `<button class="btn btn-out2" style="padding:4px 9px;font-size:0.73rem" onclick="showClientMap(${r.id})">📍</button>` : '';
   const delBtn = isAdmin ? `<button class="btn btn-red" style="padding:4px 9px;font-size:0.73rem" onclick="delInsp(${r.id})">🗑️</button>` : '';
-  const arrivedBtn = !isAdmin ? (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>` : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`) : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍وصل: ${fmtTime(r.arrived_at)}</span>` : '');
+  const arrivedBtn = !isAdmin
+    ? (r.arrived_at
+        ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>`
+        : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`)
+    : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍 وصل: ${fmtTime(r.arrived_at)}</span>` : '');
   const updBtn = !isAdmin ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>` : '';
   const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
 
-  // FIX 5: رقم unique لكل معاينة — آخر 5 أرقام من الـ ID
+  // رقم unique
   const inspNum = String(r.id).slice(-5);
   const numBadge = `<span style="display:inline-flex;align-items:center;background:#1e3a8a;color:#fff;border-radius:6px;padding:2px 8px;font-size:0.7rem;font-weight:900;font-family:'Tajawal',sans-serif;letter-spacing:1px">#${inspNum}</span>`;
-
-  // FIX 4: الموقع يظهر للفني كرابط مباشر يفتح Google Maps
-  const locHtml = r.coords
-    ? (isAdmin
-        ? `<div style="font-size:0.74rem;color:#2563c4;margin-bottom:6px">📍 <span style="color:#64748b">${r.coords}</span></div>`
-        : `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.25);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-            <div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;font-weight:600">📍 موقع العميل</div>
-            <a href="https://www.google.com/maps?q=${encodeURIComponent(r.coords)}" target="_blank"
-               style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#1e4fa3,#2563c4);border-radius:9px;padding:10px;font-size:0.85rem;color:#fff;text-decoration:none;font-weight:700;box-shadow:0 3px 10px rgba(37,99,196,0.3)">
-              🗺️ فتح الموقع في Google Maps
-            </a>
-          </div>`)
-    : '';
 
   return `<div class="icard">
     <div class="ic-top">
@@ -786,10 +820,11 @@ function buildCard(r, isAdmin) {
       <span class="stbadge ${bc}">${bl}</span>
     </div>
     <div class="ic-addr">🏠 ${r.address}</div>
+    ${timeBox}
     ${locHtml}
     ${winsHtml ? `<div style="margin-bottom:7px">${winsHtml}</div>` : ''}
     ${r.notes ? `<div style="font-size:0.76rem;color:#64748b;margin-bottom:7px">📝 ${r.notes}</div>` : ''}
-    ${fHtml ? `<div style="margin-bottom:7px">${fHtml}</div>` : ''}
+    ${fHtml}
     <div class="ic-foot"><span class="ic-tech" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👷 ${r.tech_name||'—'} · ${r.visit_date||'—'}</span><div style="display:flex;gap:4px;flex-wrap:nowrap;align-items:center">${trkBtn}${arrivedBtn}${delBtn}${updBtn}</div></div>
   </div>`;
 }
@@ -830,10 +865,15 @@ async function saveInspection() {
   const techId = document.getElementById('a-tech').value;
   const techUser = allUsers.find(u => u.id === techId);
   const uploadedLinks = await uploadAllFiles('a');
+  // coords يحتوي إما إحداثيات أو رابط Google Maps مباشر
+  const coordsVal = document.getElementById('a-crd').value.trim();
+  const pasteVal  = document.getElementById('a-crd-paste').value.trim();
+  // لو a-crd فاضي بس فيه paste → احفظ الـ paste كـ coords
+  const finalCoords = coordsVal || pasteVal || '';
   const { error } = await sb.from('inspections').insert({
     id: Date.now(),
     client_name: name, phone, address: addr,
-    coords: document.getElementById('a-crd').value,
+    coords: finalCoords,
     tech_user: techId, tech_name: techUser?.name || '',
     visit_date: document.getElementById('a-vd').value,
     visit_time: document.getElementById('a-vt').value,
@@ -865,20 +905,40 @@ function resetAdminForm() {
   document.getElementById('a-mapwrap').style.display = 'none';
 }
 
-// P2 FIX: parseGoogleMapsLink and onCoordsInput kept — GPS capture button removed
+// LOCATION FIX: استخراج إحداثيات أو حفظ الرابط كامل
 function parseGoogleMapsLink(val) {
   if (!val || val.length < 5) return;
+  val = val.trim();
   let lat = null, lng = null;
-  let m = val.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
-  if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); }
-  if (!lat) { m = val.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
-  if (!lat) { m = val.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
-  if (!lat) { m = val.match(/place\/[^/]*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
-  if (!lat) { m = val.match(/destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/); if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); } }
+
+  // patterns للروابط الطويلة
+  const patterns = [
+    /@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /place\/[^/]*\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /destination=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /maps\/search\/(-?\d+\.?\d*),\+?(-?\d+\.?\d*)/,
+    /\?q=(-?\d+\.?\d*)%2C(-?\d+\.?\d*)/,
+    /center=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+    /cbll=(-?\d+\.?\d*),(-?\d+\.?\d*)/,
+  ];
+
+  for (const p of patterns) {
+    const m = val.match(p);
+    if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); break; }
+  }
+
   if (lat && lng && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-    setCoords(lat.toFixed(6), lng.toFixed(6), '✅ تم استخراج الموقع من الرابط');
-  } else {
-    showCrdMsg('⚠️ تعذّر استخراج الإحداثيات — جرب نسخ الرابط من زرار "مشاركة" في Google Maps', 'red');
+    // نجح — نحفظ الإحداثيات
+    setCoords(lat.toFixed(6), lng.toFixed(6), '✅ تم استخراج الموقع');
+  } else if (val.includes('maps') || val.includes('goo.gl') || val.includes('maps.app')) {
+    // رابط Google Maps لكن مختصر (goo.gl / maps.app.goo.gl) — نحفظه كرابط مباشر
+    document.getElementById('a-crd').value = val;
+    document.getElementById('a-mapwrap').style.display = 'none';
+    showCrdMsg('✅ تم حفظ رابط الموقع — سيظهر للفني كرابط مباشر', 'green');
+  } else if (val.length > 10) {
+    showCrdMsg('⚠️ تعذّر التعرف على الرابط — جرب نسخه من زرار "مشاركة" في Google Maps', 'red');
   }
 }
 
@@ -1392,17 +1452,43 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 // FIX 2: منع الخروج من التطبيق إلا بزر تسجيل الخروج
 window.addEventListener('beforeunload', e => { if (CU) { e.preventDefault(); e.returnValue = ''; } });
-// منع pull-to-refresh في المتصفح
-document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-let _lastY = 0;
-document.addEventListener('touchstart', e => { _lastY = e.touches[0].clientY; }, { passive: true });
+
+// SCROLL FIX: منع pull-to-refresh بس من غير ما يمنع الـ scroll العادي
+let _lastTouchY = 0;
+document.addEventListener('touchstart', e => { _lastTouchY = e.touches[0].clientY; }, { passive: true });
 document.addEventListener('touchmove', e => {
-  const el = e.target.closest('.content');
-  if (!el) { e.preventDefault(); return; }
-  const atTop = el.scrollTop <= 0;
-  const goingDown = e.touches[0].clientY > _lastY;
-  if (atTop && goingDown) e.preventDefault();
+  const contentEl = e.target.closest('.content');
+  if (contentEl) return; // اسمح للـ content يعمل scroll بحرية
+  e.preventDefault(); // امنع الـ overscroll بره الـ content
 }, { passive: false });
+
+// EXTRACT IMAGES: تحميل كل الصور في معاينة
+async function extractImages(inspId) {
+  const r = allInspections.find(x => x.id === inspId);
+  if (!r?.files?.length) return;
+  const images = r.files.filter(f => f.type && f.type.includes('image'));
+  if (!images.length) { showToast('⚠️ لا توجد صور في هذه المعاينة'); return; }
+  showToast(`⬇️ جاري تحميل ${images.length} صورة...`);
+  for (let i = 0; i < images.length; i++) {
+    try {
+      const res = await fetch(images[i].url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ext = images[i].name?.split('.').pop() || 'jpg';
+      a.download = `معاينة-${String(inspId).slice(-5)}-صورة-${i+1}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      await new Promise(r => setTimeout(r, 400)); // delay بين كل تحميل
+    } catch(e) {
+      showToast(`⚠️ خطأ في تحميل الصورة ${i+1}`);
+    }
+  }
+  showToast(`✅ تم تحميل ${images.length} صورة`);
+}
 </script>
 </body>
 </html>
