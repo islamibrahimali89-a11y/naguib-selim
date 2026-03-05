@@ -371,6 +371,20 @@ const LOGO_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
       </div>
       <div id="rp-summary" style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:12px"></div>
       <div id="rp-list"></div>
+
+      <div class="divider" style="margin-top:18px"><h2>⏱️ تقرير وقت الاتصال</h2></div>
+      <div class="card">
+        <div class="ctitle">فلترة فترة الاتصال</div>
+        <div class="frow">
+          <div class="fg"><div class="fl">من تاريخ</div><input class="fi" type="date" id="ol-from"></div>
+          <div class="fg"><div class="fl">إلى تاريخ</div><input class="fi" type="date" id="ol-to"></div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-out2" onclick="renderOnlineReport()">🔍 عرض التقرير</button>
+          <button class="btn btn-gold" onclick="exportOnlineCSV()">⬇️ تصدير CSV</button>
+        </div>
+      </div>
+      <div id="ol-list"></div>
     </div>
     <div class="panel" id="ap-users">
       <div class="divider"><h2>إضافة فني جديد</h2></div>
@@ -533,6 +547,7 @@ function setLoading(on) {
 async function doLogout() {
   if (isTracking) stopTracking();
   if (CU && CU.role === 'tech') {
+    await endSession();
     await sb.from('technicians').update({ online: false }).eq('id', CU.id);
   }
   CU = null;
@@ -837,6 +852,7 @@ async function initTech() {
   document.getElementById('t-dstr').textContent = now.toLocaleDateString('ar-EG', { weekday:'long' });
   document.getElementById('t-tdate').textContent = now.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   await sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
+  await startSession();
   await renderTechToday();
 }
 
@@ -1052,10 +1068,13 @@ function initReport() {
   const firstDay = today.substring(0,7) + '-01';
   document.getElementById('rp-from').value = firstDay;
   document.getElementById('rp-to').value = today;
+  document.getElementById('ol-from').value = firstDay;
+  document.getElementById('ol-to').value = today;
   const sel = document.getElementById('rp-tech');
   sel.innerHTML = '<option value="">كل الفنيين</option>' +
     allUsers.filter(u => u.role === 'tech').map(u => `<option value="${u.id}">${u.name}</option>`).join('');
   renderReport();
+  renderOnlineReport();
 }
 
 function getReportData() {
@@ -1141,6 +1160,119 @@ function exportCSV() {
   a.click();
   URL.revokeObjectURL(url);
   showToast('✅ تم تصدير ' + data.length + ' معاينة');
+}
+
+// ============================================
+// ONLINE SESSION TRACKING
+// ============================================
+let sessionStart = null;
+
+async function startSession() {
+  sessionStart = new Date().toISOString();
+  await sb.from('online_sessions').insert({
+    tech_user: CU.id,
+    tech_name: CU.name,
+    login_at: sessionStart,
+    logout_at: null,
+    duration_min: null
+  });
+}
+
+async function endSession() {
+  if (!sessionStart || !CU) return;
+  const now = new Date();
+  const start = new Date(sessionStart);
+  const durMin = Math.round((now - start) / 60000);
+  await sb.from('online_sessions')
+    .update({ logout_at: now.toISOString(), duration_min: durMin })
+    .eq('tech_user', CU.id)
+    .is('logout_at', null);
+  sessionStart = null;
+}
+
+async function renderOnlineReport() {
+  const from = document.getElementById('ol-from').value;
+  const to = document.getElementById('ol-to').value;
+  const c = document.getElementById('ol-list');
+  c.innerHTML = '<div style="text-align:center;padding:18px;color:#94a3b8">⏳ جاري التحميل...</div>';
+
+  const { data, error } = await sb.from('online_sessions')
+    .select('*')
+    .gte('login_at', from + 'T00:00:00')
+    .lte('login_at', to + 'T23:59:59')
+    .order('login_at', { ascending: false });
+
+  if (error || !data?.length) {
+    c.innerHTML = '<div class="empty"><div class="ei">⏱️</div><p>لا توجد بيانات اتصال للفترة المحددة</p></div>';
+    return;
+  }
+
+  // Group by tech
+  const byTech = {};
+  data.forEach(s => {
+    if (!byTech[s.tech_user]) byTech[s.tech_user] = { name: s.tech_name, sessions: [], totalMin: 0 };
+    byTech[s.tech_user].sessions.push(s);
+    byTech[s.tech_user].totalMin += s.duration_min || 0;
+  });
+
+  c.innerHTML = Object.values(byTech).map(t => {
+    const hrs = Math.floor(t.totalMin / 60);
+    const mins = t.totalMin % 60;
+    const rows = t.sessions.map(s => {
+      const dur = s.duration_min != null ? `${Math.floor(s.duration_min/60)}س ${s.duration_min%60}د` : '—';
+      return `<tr style="border-bottom:1px solid rgba(30,79,163,0.07)">
+        <td style="padding:7px 8px;font-size:0.78rem;color:#1e293b">${fmtTime(s.login_at)}</td>
+        <td style="padding:7px 8px;font-size:0.78rem;color:#64748b">${s.logout_at ? fmtTime(s.logout_at) : '<span style="color:#16a34a">متصل الآن</span>'}</td>
+        <td style="padding:7px 8px;font-size:0.78rem;font-weight:700;color:#1e4fa3">${dur}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="background:#fff;border:1px solid rgba(30,79,163,0.12);border-radius:13px;margin-bottom:11px;overflow:hidden;box-shadow:0 2px 8px rgba(30,79,163,0.07)">
+      <div style="background:linear-gradient(135deg,#1e3a8a,#2563c4);padding:11px 14px;display:flex;justify-content:space-between;align-items:center">
+        <div style="color:#fff;font-weight:700;font-size:0.93rem">👷 ${t.name}</div>
+        <div style="background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 12px;color:#fff;font-weight:900;font-size:0.88rem">⏱️ ${hrs}س ${mins}د</div>
+      </div>
+      <div style="padding:8px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f0f4ff">
+            <th style="padding:6px 8px;font-size:0.73rem;color:#475569;text-align:right;font-weight:600">دخل</th>
+            <th style="padding:6px 8px;font-size:0.73rem;color:#475569;text-align:right;font-weight:600">خرج</th>
+            <th style="padding:6px 8px;font-size:0.73rem;color:#475569;text-align:right;font-weight:600">المدة</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function exportOnlineCSV() {
+  const from = document.getElementById('ol-from').value;
+  const to = document.getElementById('ol-to').value;
+  const { data } = await sb.from('online_sessions')
+    .select('*')
+    .gte('login_at', from + 'T00:00:00')
+    .lte('login_at', to + 'T23:59:59')
+    .order('login_at', { ascending: false });
+
+  if (!data?.length) { showToast('⚠️ لا توجد بيانات'); return; }
+
+  const headers = ['الفني', 'وقت الدخول', 'وقت الخروج', 'المدة (دقيقة)', 'المدة (ساعة:دقيقة)'];
+  const rows = data.map(s => [
+    s.tech_name || '',
+    s.login_at ? fmtTime(s.login_at) : '',
+    s.logout_at ? fmtTime(s.logout_at) : 'متصل الآن',
+    s.duration_min ?? '',
+    s.duration_min != null ? `${Math.floor(s.duration_min/60)}:${String(s.duration_min%60).padStart(2,'0')}` : ''
+  ]);
+  const csv = '\uFEFF' + [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `تقرير-وقت-الاتصال-${from}-${to}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ تم التصدير');
 }
 
 // PWA
