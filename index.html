@@ -306,6 +306,7 @@ const LOGO_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1B
             </select>
           </div>
         </div>
+        <div class="fg"><div class="fl">🪟 عدد الشبابيك</div><input class="fi" type="number" id="a-wins" placeholder="0" min="0" style="width:100%"></div>
         <div class="fg"><div class="fl">📝 ملاحظات</div><textarea class="fta" id="a-nt" placeholder="مقاسات، ملاحظات خاصة..."></textarea></div>
       </div>
       <div class="card">
@@ -702,15 +703,26 @@ function buildCard(r, isAdmin) {
   const sm = { complete:['st-complete','✅ تامة'], refused:['st-refused','❌ رفض'], postponed:['st-postponed','⏸️ تأجيل'], cancelled:['st-cancelled','🚫 إلغاء'], pending:['st-pending','🕐 انتظار'] };
   const [bc, bl] = sm[r.status] || sm.pending;
   const files = r.files || [];
-  const fHtml = files.length ? files.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:var(--g5);text-decoration:none;margin-left:5px">📎${f.name?.substring(0,14)||'ملف'}</a>`).join('') : '';
+  const fHtml = files.length ? files.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#2563c4;text-decoration:none;margin-left:5px">📎${f.name?.substring(0,14)||'ملف'}</a>`).join('') : '';
   const trkBtn = r.coords && isAdmin ? `<button class="btn btn-out2" style="padding:4px 9px;font-size:0.73rem" onclick="showClientMap(${r.id})">📍</button>` : '';
   const delBtn = isAdmin ? `<button class="btn btn-red" style="padding:4px 9px;font-size:0.73rem" onclick="delInsp(${r.id})">🗑️</button>` : '';
   const arrivedBtn = !isAdmin ? (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>` : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`) : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍وصل: ${fmtTime(r.arrived_at)}</span>` : '');
   const updBtn = !isAdmin ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>` : '';
+
+  // windows count — show to both, label differs
+  const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
+
+  // clickable location for tech
+  const locHtml = r.coords && !isAdmin
+    ? `<a href="https://www.google.com/maps?q=${r.coords.replace(' ','')}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;border:1px solid rgba(37,99,196,0.2);border-radius:6px;padding:3px 9px;font-size:0.75rem;color:#2563c4;text-decoration:none;font-weight:600;margin-bottom:7px">🗺️ فتح الموقع في الخريطة</a>`
+    : '';
+
   return `<div class="icard">
     <div class="ic-top"><div><div class="ic-name">${r.client_name}</div><div class="ic-phone">📞 ${r.phone}</div></div><span class="stbadge ${bc}">${bl}</span></div>
     <div class="ic-addr">🏠 ${r.address}</div>
-    ${r.notes ? `<div style="font-size:0.76rem;color:var(--td);margin-bottom:7px">📝 ${r.notes}</div>` : ''}
+    ${locHtml}
+    ${winsHtml ? `<div style="margin-bottom:7px">${winsHtml}</div>` : ''}
+    ${r.notes ? `<div style="font-size:0.76rem;color:#64748b;margin-bottom:7px">📝 ${r.notes}</div>` : ''}
     ${fHtml ? `<div style="margin-bottom:7px">${fHtml}</div>` : ''}
     <div class="ic-foot"><span class="ic-tech">👷 ${r.tech_name||'—'} · ${r.visit_date||'—'} ${r.visit_time||''}</span><div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">${trkBtn}${arrivedBtn}${delBtn}${updBtn}</div></div>
   </div>`;
@@ -759,6 +771,7 @@ async function saveInspection() {
     visit_time: document.getElementById('a-vt').value,
     status: document.getElementById('a-st').value,
     notes: document.getElementById('a-nt').value.trim(),
+    windows_count: parseInt(document.getElementById('a-wins').value) || 0,
     files: uploadedLinks,
     created_at: new Date().toISOString()
   });
@@ -773,7 +786,7 @@ async function saveInspection() {
 }
 
 function resetAdminForm() {
-  ['a-cn','a-cp','a-ca','a-crd','a-nt'].forEach(id => document.getElementById(id).value = '');
+  ['a-cn','a-cp','a-ca','a-crd','a-nt','a-wins'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('a-vd').value = new Date().toISOString().split('T')[0];
   document.getElementById('a-vt').value = '';
   document.getElementById('a-st').value = 'pending';
@@ -1127,6 +1140,7 @@ function renderReport() {
         <div style="background:#f8faff;border-radius:6px;padding:6px"><span style="color:#94a3b8">📅 الموعد</span><br><strong style="color:#1e293b">${r.visit_date||'—'} ${r.visit_time||''}</strong></div>
         <div style="background:${r.arrived_at?'#f0fdf4':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">📍 وصل</span><br><strong style="color:${r.arrived_at?'#16a34a':'#94a3b8'}">${r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل'}</strong></div>
         <div style="background:${r.status_changed_at?'#f0f4ff':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">🔄 تغيير الحالة</span><br><strong style="color:${r.status_changed_at?'#1e4fa3':'#94a3b8'}">${r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يُغيَّر'}</strong></div>
+        ${r.windows_count ? `<div style="background:#f0f4ff;border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#94a3b8">🪟 عدد الشبابيك</span><br><strong style="color:#1e4fa3;font-size:1.05rem">${r.windows_count} شباك</strong></div>` : ''}
       </div>
       ${r.notes ? `<div style="margin-top:7px;font-size:0.75rem;color:#64748b;background:#f8faff;border-radius:6px;padding:6px">📝 ${r.notes}</div>` : ''}
     </div>`).join('') : '<div class="empty"><div class="ei">📊</div><p>لا توجد بيانات للفترة المحددة</p></div>';
@@ -1136,7 +1150,7 @@ function exportCSV() {
   const data = getReportData();
   if (!data.length) { showToast('⚠️ لا توجد بيانات للتصدير'); return; }
   const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
-  const headers = ['م','اسم العميل','الهاتف','العنوان','الفني','تاريخ الموعد','الوقت','الحالة','وقت الوصول','وقت تغيير الحالة','الملاحظات','تاريخ الإنشاء'];
+  const headers = ['م','اسم العميل','الهاتف','العنوان','الفني','تاريخ الموعد','الوقت','الحالة','عدد الشبابيك','وقت الوصول','وقت تغيير الحالة','الملاحظات','تاريخ الإنشاء'];
   const rows = data.map((r, i) => [
     i + 1,
     r.client_name || '',
@@ -1146,6 +1160,7 @@ function exportCSV() {
     r.visit_date || '',
     r.visit_time || '',
     sm[r.status] || '',
+    r.windows_count || 0,
     r.arrived_at ? fmtTime(r.arrived_at) : '',
     r.status_changed_at ? fmtTime(r.status_changed_at) : '',
     (r.notes || '').replace(/,/g, '،'),
