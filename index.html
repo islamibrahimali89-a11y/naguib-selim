@@ -598,7 +598,7 @@ async function doLogout() {
   if (isTracking) stopTracking();
   if (CU && CU.role === 'tech') {
     await endSession();
-    await sb.from('technicians').update({ online: false }).eq('id', CU.id);
+    await sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
   }
   CU = null;
   showScreen('sc-login');
@@ -724,11 +724,9 @@ function checkOffline() {
   document.getElementById('a-offbanner').classList.toggle('show', any);
 }
 
-
 async function showTechMap(techId) {
   showToast('جاري تحميل موقع الفني...');
 
-  // جلب أحدث بيانات الفني مباشرة من Supabase (مش من cache)
   const { data: tech, error } = await sb
     .from('technicians')
     .select('*')
@@ -736,62 +734,58 @@ async function showTechMap(techId) {
     .single();
 
   if (error || !tech) {
-    showToast('⚠️ تعذّر تحميل بيانات الفني');
-    console.error('[showTechMap] Supabase error:', error);
+    showToast('تعذّر تحميل بيانات الفني');
+    console.error('showTechMap error:', error);
     return;
   }
 
-  // تأكد إنه فني وليس أدمن
   if (tech.role !== 'tech') {
-    showToast('⚠️ هذا الحساب ليس فنياً!');
+    showToast('هذا الحساب ليس فنياً');
     return;
   }
 
-  // تحديث الـ cache المحلي
-  const idx = allUsers.findIndex(x => x.id === techId);
-  if (idx >= 0) allUsers[idx] = tech;
-
-  // تحقق من الإحداثيات
-  if (tech.lat == null || tech.lng == null) {
-    showToast('⚠️ الفني لم يفعّل التتبع بعد');
+  // تحقق: لو lat/lng فاضيين معناها الفني مفعّلش التتبع
+  if (tech.lat == null || tech.lng == null || tech.lat === '' || tech.lng === '') {
     document.getElementById('map-iframe').src = '';
     document.getElementById('map-info').innerHTML =
       '<div style="grid-column:span 2;background:#fef2f2;border:1px solid rgba(220,38,38,0.3);border-radius:10px;padding:16px;text-align:center">' +
       '<div style="font-size:1.5rem;margin-bottom:8px">📡</div>' +
-      '<div style="font-weight:700;color:#dc2626;margin-bottom:4px">لا يوجد موقع للفني</div>' +
-      '<div style="font-size:0.82rem;color:#64748b">' + tech.name + ' لم يفعّل التتبع بعد</div></div>';
+      '<div style="font-weight:700;color:#dc2626;margin-bottom:4px">لا يوجد موقع للفني حالياً</div>' +
+      '<div style="font-size:0.82rem;color:#64748b">' + tech.name + ' لم يفعّل التتبع أو GPS غير متاح</div>' +
+      '</div>';
     document.getElementById('mod-map').classList.add('open');
     return;
   }
 
-  const tLat = parseFloat(tech.lat);
-  const tLng = parseFloat(tech.lng);
+  var tLat = parseFloat(tech.lat);
+  var tLng = parseFloat(tech.lng);
 
   if (isNaN(tLat) || isNaN(tLng)) {
-    showToast('⚠️ إحداثيات الفني غير صحيحة');
+    showToast('إحداثيات غير صحيحة');
     return;
   }
 
-  // حفظ الموقع للاستخدام في openGMaps
+  // تحديث cache
+  var idx = allUsers.findIndex(function(x) { return x.id === techId; });
+  if (idx >= 0) allUsers[idx] = tech;
+
   mapDest = { lat: tLat, lng: tLng };
 
-  // بناء الـ iframe
-  const today = new Date().toISOString().split('T')[0];
-  const pending = allInspections
-    .filter(r => r.tech_user === String(techId) && r.status === 'pending' && r.visit_date === today)
-    .sort((a,b) => (a.visit_time||'').localeCompare(b.visit_time||''));
+  var today = new Date().toISOString().split('T')[0];
+  var pendingList = allInspections
+    .filter(function(r) { return r.tech_user === String(techId) && r.status === 'pending' && r.visit_date === today; })
+    .sort(function(a,b) { return (a.visit_time||'').localeCompare(b.visit_time||''); });
 
-  let src = `https://maps.google.com/maps?q=${tLat},${tLng}&z=16&output=embed`;
+  var src = 'https://maps.google.com/maps?q=' + tLat + ',' + tLng + '&z=16&output=embed';
 
-  // لو فيه عميل pending — اعرض الاتجاهات
-  if (pending.length > 0 && pending[0].coords) {
-    const cs = pending[0].coords;
-    const isLink = cs.includes('http') || cs.includes('maps');
-    if (!isLink) {
-      const pts = cs.replace(/\s/g,'').split(',');
-      const cLat = parseFloat(pts[0]), cLng = parseFloat(pts[1]);
+  if (pendingList.length > 0 && pendingList[0].coords) {
+    var cs = pendingList[0].coords;
+    var isLnk = cs.indexOf('http') >= 0 || cs.indexOf('maps') >= 0;
+    if (!isLnk) {
+      var pts = cs.replace(/\s/g,'').split(',');
+      var cLat = parseFloat(pts[0]), cLng = parseFloat(pts[1]);
       if (!isNaN(cLat) && !isNaN(cLng)) {
-        src = `https://maps.google.com/maps?saddr=${tLat},${tLng}&daddr=${cLat},${cLng}&output=embed`;
+        src = 'https://maps.google.com/maps?saddr=' + tLat + ',' + tLng + '&daddr=' + cLat + ',' + cLng + '&output=embed';
         mapDest.dLat = cLat;
         mapDest.dLng = cLng;
       }
@@ -800,50 +794,46 @@ async function showTechMap(techId) {
     }
   }
 
-  const lastUpdated = tech.last_seen ? timeAgo(tech.last_seen) : '—';
-  const accuracy = tech.accuracy ? ' · دقة ' + Math.round(tech.accuracy) + 'م' : '';
+  var lastUpd = tech.last_seen ? timeAgo(tech.last_seen) : '—';
+  var accTxt = tech.accuracy ? ' · دقة ' + Math.round(tech.accuracy) + 'م' : '';
 
-  let infoCards = `
-    <div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">
-      <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني الحالي</div>
-      <div style="font-weight:700;color:#1e293b;font-size:0.9rem">${tech.name}</div>
-      <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpdated}${accuracy}</div>
-      <div style="font-size:0.71rem;color:#64748b;margin-top:1px;font-family:'Tajawal',sans-serif">${tLat.toFixed(6)}, ${tLng.toFixed(6)}</div>
-      <a href="https://www.google.com/maps?q=${tLat},${tLng}" target="_blank"
-         style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">
-        📍 فتح موقع الفني
-      </a>
-    </div>`;
+  var infoHtml = '<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">' +
+    '<div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني الحالي (مباشر)</div>' +
+    '<div style="font-weight:700;color:#1e293b;font-size:0.9rem">' + tech.name + '</div>' +
+    '<div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ' + lastUpd + accTxt + '</div>' +
+    '<div style="font-size:0.71rem;color:#64748b;font-family:Tajawal,sans-serif;margin-top:1px">' + tLat.toFixed(6) + ', ' + tLng.toFixed(6) + '</div>' +
+    '<a href="https://www.google.com/maps?q=' + tLat + ',' + tLng + '" target="_blank" ' +
+    'style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">📍 فتح موقع الفني</a>' +
+    '</div>';
 
-  // عرض العملاء القريبين
-  const distRows = pending.slice(0, 3).map((r, idx) => {
-    const coordStr = r.coords || '';
-    const isLink = coordStr.includes('http') || coordStr.includes('maps');
-    let distTxt = '—', clientMapUrl = null;
+  pendingList.slice(0, 3).forEach(function(r, i) {
+    var coordStr = r.coords || '';
+    var isLink = coordStr.indexOf('http') >= 0 || coordStr.indexOf('maps') >= 0;
+    var distTxt = '—', clientMapUrl = null;
     if (!isLink && coordStr) {
-      const parts = coordStr.replace(/\s/g,'').split(',');
-      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
-      if (!isNaN(cLat) && !isNaN(cLng)) {
-        const dist = calcDist(tLat, tLng, cLat, cLng);
+      var parts = coordStr.replace(/\s/g,'').split(',');
+      var pLat = parseFloat(parts[0]), pLng = parseFloat(parts[1]);
+      if (!isNaN(pLat) && !isNaN(pLng)) {
+        var dist = calcDist(tLat, tLng, pLat, pLng);
         distTxt = dist.toFixed(1) + ' كم';
-        clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + cLat + ',' + cLng;
+        clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + pLat + ',' + pLng;
       }
     } else if (isLink) {
       clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + encodeURIComponent(coordStr);
       distTxt = 'رابط';
     }
-    return '<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">' +
+    infoHtml += '<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-      '<div style="font-size:0.72rem;color:#64748b">' + (idx === 0 ? '🟢 العميل التالي' : '⏳ العميل ' + (idx+1)) + '</div>' +
-      '<span style="background:' + (idx===0?'#2563c4':'#94a3b8') + ';color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 ' + distTxt + '</span></div>' +
+      '<div style="font-size:0.72rem;color:#64748b">' + (i === 0 ? 'العميل التالي' : 'العميل ' + (i+1)) + '</div>' +
+      '<span style="background:' + (i===0?'#2563c4':'#94a3b8') + ';color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 ' + distTxt + '</span></div>' +
       '<div style="font-weight:700;font-size:0.84rem;color:#1e293b">' + r.client_name + '</div>' +
       '<div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ ' + (r.visit_time||'—') + '</div>' +
       (clientMapUrl ? '<a href="' + clientMapUrl + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>' : '') +
       '</div>';
-  }).join('');
+  });
 
   document.getElementById('map-iframe').src = src;
-  document.getElementById('map-info').innerHTML = infoCards + distRows;
+  document.getElementById('map-info').innerHTML = infoHtml;
   document.getElementById('mod-map').classList.add('open');
 }
 
@@ -1163,7 +1153,7 @@ async function initTech() {
   document.getElementById('t-namehdr').textContent = CU.name;
   document.getElementById('t-dstr').textContent = now.toLocaleDateString('ar-EG', { weekday:'long' });
   document.getElementById('t-tdate').textContent = now.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-  await sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
+  await sb.from('technicians').update({ online: true, last_seen: Date.now(), lat: null, lng: null }).eq('id', CU.id);
   await startSession();
   await renderTechToday();
 }
@@ -1238,7 +1228,7 @@ function stopTracking() {
   document.getElementById('t-trkicon').textContent = '📡';
   document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
   document.getElementById('t-loccrd').style.display = 'none';
-  sb.from('technicians').update({ online: false }).eq('id', CU.id);
+  sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
   showToast('⏹️ تم إيقاف التتبع');
 }
 
@@ -1700,6 +1690,8 @@ async function extractImages(inspId) {
     }
   }
   showToast(`✅ تم تحميل ${images.length} صورة`);
+}
+
 }
 
 </script>
