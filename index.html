@@ -666,13 +666,32 @@ function initAdminDash() {
 
 function renderTechCards() {
   const today = new Date().toISOString().split('T')[0];
+  // فقط الفنيين (role=tech) — الـ admin مش فني
   const techs = allUsers.filter(u => u.role === 'tech');
   const c = document.getElementById('a-techcards');
   if (!techs.length) { c.innerHTML = '<div class="empty"><div class="ei">👷</div><p>لا يوجد فنيون</p></div>'; return; }
   c.innerHTML = techs.map(u => {
     const tIns = allInspections.filter(r => r.tech_user === u.id);
     const todayIns = tIns.filter(r => r.visit_date === today);
-    const isOnline = u.online && u.last_seen && (Date.now() - u.last_seen < 35 * 60 * 1000);
+    // مهم: u.role لازم tech وmust have lat/lng من watchPosition بتاع الفني نفسه
+    const isOnline = u.role === 'tech' && u.online && u.last_seen && (Date.now() - u.last_seen < 35 * 60 * 1000);
+    // حساب المسافة للعميل التالي لو عندنا إحداثيات حقيقية
+    const nextPending = todayIns
+      .filter(r => r.status === 'pending' && r.coords)
+      .sort((a,b) => (a.visit_time||'').localeCompare(b.visit_time||''))[0];
+    let distBadge = '';
+    if (isOnline && u.lat && u.lng && nextPending) {
+      const coordStr = nextPending.coords;
+      const isLink = coordStr.includes('http') || coordStr.includes('maps');
+      if (!isLink) {
+        const parts = coordStr.replace(/\s/g,'').split(',');
+        const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
+        if (!isNaN(cLat) && !isNaN(cLng)) {
+          const dist = calcDist(parseFloat(u.lat), parseFloat(u.lng), cLat, cLng);
+          distBadge = `<span style="background:#eff6ff;border:1px solid rgba(37,99,196,0.3);border-radius:6px;padding:2px 8px;font-size:0.72rem;color:#1e4fa3;font-weight:700">📏 ${dist.toFixed(1)} كم للعميل التالي</span>`;
+        }
+      }
+    }
     return `<div class="tcard">
       <div class="tc-hdr">
         <div class="tc-av">${u.name.charAt(0)}</div>
@@ -689,10 +708,11 @@ function renderTechCards() {
         <div class="tcs"><div class="tcs-n" style="color:#2ecc71">${todayIns.filter(r=>r.status==='complete').length}</div><div class="tcs-l">تامة</div></div>
         <div class="tcs"><div class="tcs-n c-ora">${todayIns.filter(r=>r.status==='pending').length}</div><div class="tcs-l">انتظار</div></div>
       </div>
+      ${distBadge ? `<div style="margin-top:6px">${distBadge}</div>` : ''}
       <div class="tc-lastseen">⏰ ${u.last_seen ? timeAgo(u.last_seen) : 'لم يُسجّل دخول'}
-        ${u.lat && u.lng
+        ${u.lat && u.lng && isOnline
           ? ` · <a href="https://www.google.com/maps?q=${u.lat},${u.lng}" target="_blank" style="color:#2563c4;text-decoration:none;font-weight:700">📍 ${parseFloat(u.lat).toFixed(5)}, ${parseFloat(u.lng).toFixed(5)}</a>`
-          : ' · <span style="color:#dc2626">لا يوجد موقع بعد</span>'}
+          : (!isOnline ? '' : ' · <span style="color:#dc2626">لا يوجد موقع بعد</span>')}
       </div>
     </div>`;
   }).join('');
@@ -706,31 +726,66 @@ function checkOffline() {
 
 function showTechMap(techId) {
   const u = allUsers.find(x => x.id === techId);
-  if (!u?.lat) return;
-  mapDest = { lat: u.lat, lng: u.lng };
+  if (!u?.lat || !u?.lng) { showToast('⚠️ الفني لم يفعّل التتبع بعد'); return; }
+  const tLat = parseFloat(u.lat), tLng = parseFloat(u.lng);
+  mapDest = { lat: tLat, lng: tLng };
+
   const today = new Date().toISOString().split('T')[0];
-  const next = allInspections.find(r => r.tech_user === techId && r.status === 'pending' && r.visit_date === today && r.coords);
-  let src = `https://maps.google.com/maps?q=${u.lat},${u.lng}&z=15&markers=color:red%7C${u.lat},${u.lng}&output=embed`;
-  let info = `
-    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px"><div style="font-size:0.73rem;color:#64748b">الفني</div><div style="font-weight:700;color:#1e293b">${u.name}</div></div>
-    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px"><div style="font-size:0.73rem;color:#64748b">آخر تحديث</div><div style="font-weight:700;color:#16a34a">${timeAgo(u.last_seen)}</div></div>`;
-  if (next) {
-    const [cLat, cLng] = next.coords.split(',').map(Number);
-    const dist = calcDist(u.lat, u.lng, cLat, cLng);
-    mapDest.dLat = cLat; mapDest.dLng = cLng;
-    src = `https://maps.google.com/maps?saddr=${u.lat},${u.lng}&daddr=${cLat},${cLng}&output=embed`;
-    info += `
-      <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px"><div style="font-size:0.73rem;color:#64748b">العميل التالي</div><div style="font-weight:700;font-size:0.84rem;color:#1e293b">${next.client_name}</div></div>
-      <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px"><div style="font-size:0.73rem;color:#64748b">المسافة</div><div style="font-weight:700;color:#2563c4">${dist.toFixed(1)} كم</div></div>`;
-  }
+  // أول معاينة pending اليوم مرتبة بالوقت
+  const pending = allInspections
+    .filter(r => r.tech_user === techId && r.status === 'pending' && r.visit_date === today)
+    .sort((a,b) => (a.visit_time||'').localeCompare(b.visit_time||''));
+
+  let src = `https://maps.google.com/maps?q=${tLat},${tLng}&z=15&output=embed`;
+  let infoCards = `
+    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px">
+      <div style="font-size:0.73rem;color:#64748b">الفني</div>
+      <div style="font-weight:700;color:#1e293b">${u.name}</div>
+    </div>
+    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px">
+      <div style="font-size:0.73rem;color:#64748b">آخر تحديث</div>
+      <div style="font-weight:700;color:#16a34a">${timeAgo(u.last_seen)}</div>
+    </div>`;
+
+  // المعاينات التالية مع المسافة
+  const distRows = pending.slice(0, 3).map((r, idx) => {
+    const coordStr = r.coords || '';
+    const isLink = coordStr.includes('http') || coordStr.includes('maps');
+    let distTxt = '—', clientMapUrl = null;
+    if (!isLink && coordStr) {
+      const parts = coordStr.replace(/\s/g,'').split(',');
+      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
+      if (!isNaN(cLat) && !isNaN(cLng)) {
+        const dist = calcDist(tLat, tLng, cLat, cLng);
+        distTxt = `${dist.toFixed(1)} كم`;
+        clientMapUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${cLat},${cLng}`;
+        if (idx === 0) { mapDest.dLat = cLat; mapDest.dLng = cLng; src = `https://maps.google.com/maps?saddr=${tLat},${tLng}&daddr=${cLat},${cLng}&output=embed`; }
+      }
+    } else if (isLink) {
+      clientMapUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${encodeURIComponent(coordStr)}`;
+      distTxt = 'رابط';
+      if (idx === 0) { mapDest.dLink = coordStr; }
+    }
+    return `<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:0.72rem;color:#64748b">${idx === 0 ? '🟢 العميل التالي' : `⏳ العميل ${idx+1}`}</div>
+        <span style="background:${idx===0?'#2563c4':'#94a3b8'};color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 ${distTxt}</span>
+      </div>
+      <div style="font-weight:700;font-size:0.84rem;color:#1e293b">${r.client_name}</div>
+      <div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ ${r.visit_time||'—'}</div>
+      ${clientMapUrl ? `<a href="${clientMapUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>` : ''}
+    </div>`;
+  }).join('');
+
   document.getElementById('map-iframe').src = src;
-  document.getElementById('map-info').innerHTML = info;
+  document.getElementById('map-info').innerHTML = infoCards + distRows;
   document.getElementById('mod-map').classList.add('open');
 }
 
 function openGMaps() {
   if (!mapDest) return;
   if (mapDest.dLat) window.open(`https://www.google.com/maps/dir/${mapDest.lat},${mapDest.lng}/${mapDest.dLat},${mapDest.dLng}`, '_blank');
+  else if (mapDest.dLink) window.open(`https://www.google.com/maps/dir/${mapDest.lat},${mapDest.lng}/${encodeURIComponent(mapDest.dLink)}`, '_blank');
   else window.open(`https://www.google.com/maps?q=${mapDest.lat},${mapDest.lng}`, '_blank');
 }
 
@@ -804,7 +859,22 @@ function buildCard(r, isAdmin) {
         ? `<span style="font-size:0.72rem;color:#16a34a;background:#f0fdf4;border:1px solid rgba(22,163,74,0.3);border-radius:6px;padding:3px 8px">📍 وصل ${fmtTime(r.arrived_at)}</span>`
         : `<button class="btn btn-green" style="padding:5px 10px;font-size:0.76rem" onclick="markArrived(${r.id})">📍 تم الوصول</button>`)
     : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍 وصل: ${fmtTime(r.arrived_at)}</span>` : '');
-  const updBtn = !isAdmin ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>` : '';
+  const updBtn = !isAdmin
+    ? (() => {
+        // تحقق من الترتيب الإلزامي — الزرار يتغير بناء على الترتيب
+        const today = new Date().toISOString().split('T')[0];
+        const todayPending = allInspections
+          .filter(x => x.tech_user === r.tech_user && x.visit_date === today && x.status === 'pending')
+          .sort((a,b) => (a.visit_time||'99:99').localeCompare(b.visit_time||'99:99'));
+        const isFirst = todayPending.length === 0 || todayPending[0].id === r.id;
+        if (r.status !== 'pending') {
+          return `<button class="btn btn-out2" style="padding:5px 11px;font-size:0.78rem;opacity:0.6" onclick="openUpdateModal(${r.id})">✏️ تعديل</button>`;
+        }
+        return isFirst
+          ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>`
+          : `<button class="btn btn-out2" style="padding:5px 11px;font-size:0.78rem;opacity:0.5;cursor:not-allowed" onclick="openUpdateModal(${r.id})">🔒 انتظار</button>`;
+      })()
+    : '';
   const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
 
   // رقم unique
@@ -1115,19 +1185,73 @@ async function doGPS() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden && isTracking) doGPS(); });
 
 // ============================================
-// UPDATE MODAL (Tech)
+// UPDATE MODAL (Tech) — مع تطبيق الترتيب الإلزامي
 // ============================================
 function openUpdateModal(id) {
+  // تحقق من الترتيب — الفني لازم يعمل update للمعاينة الأولى pending أولاً
+  const today = new Date().toISOString().split('T')[0];
+  const todayPending = allInspections
+    .filter(r => r.tech_user === CU.id && r.visit_date === today && r.status === 'pending')
+    .sort((a,b) => (a.visit_time||'99:99').localeCompare(b.visit_time||'99:99'));
+
+  if (todayPending.length > 0 && todayPending[0].id !== id) {
+    // الفني بيحاول يعدّل معاينة مش الأولى
+    const first = todayPending[0];
+    const firstNum = String(first.id).slice(-5);
+    const firstTime = first.visit_time || '—';
+    showToast(`⛔ لازم تكمّل المعاينة #${firstNum} (${firstTime}) الأول`);
+    // اعرضله رسالة تفصيلية
+    document.getElementById('um-info').innerHTML = `
+      <div style="background:#fef2f2;border:1px solid rgba(220,38,38,0.3);border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:1.5rem;margin-bottom:6px">⛔</div>
+        <div style="font-weight:700;color:#dc2626;font-size:0.9rem;margin-bottom:4px">لازم تكمّل الأول</div>
+        <div style="font-size:0.8rem;color:#64748b">المعاينة <strong style="color:#1e293b">#${firstNum}</strong> — ${first.client_name}</div>
+        <div style="font-size:0.78rem;color:#64748b;margin-top:2px">الموعد: ${firstTime}</div>
+      </div>`;
+    document.getElementById('um-st').disabled = true;
+    document.getElementById('um-nt').disabled = true;
+    document.getElementById('um-savebtn').disabled = true;
+    document.getElementById('um-savebtn').textContent = '⛔ غير مسموح';
+    document.getElementById('mod-update').classList.add('open');
+    return;
+  }
+
+  // مسموح — فتح modal عادي
   activeUpdateId = id;
   const r = allInspections.find(x => x.id === id) || {};
   pendingFiles.um = [];
   renderPendingFiles('um');
+  document.getElementById('um-st').disabled = false;
+  document.getElementById('um-nt').disabled = false;
+  document.getElementById('um-savebtn').disabled = false;
+  document.getElementById('um-savebtn').textContent = '💾 حفظ التحديث';
   document.getElementById('um-st').value = r.status || 'pending';
   document.getElementById('um-nt').value = r.notes || '';
+
+  // المسافة من موقع الفني لو متاح
+  let distInfo = '';
+  if (r.coords && CU) {
+    const coordStr = r.coords;
+    const isLink = coordStr.includes('http') || coordStr.includes('maps');
+    if (!isLink) {
+      const parts = coordStr.replace(/\s/g,'').split(',');
+      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
+      sb.from('technicians').select('lat,lng').eq('id', CU.id).single().then(({data}) => {
+        if (data?.lat && !isNaN(cLat)) {
+          const dist = calcDist(parseFloat(data.lat), parseFloat(data.lng), cLat, cLng);
+          const el = document.getElementById('um-dist');
+          if (el) el.textContent = `📏 المسافة: ${dist.toFixed(1)} كم`;
+        }
+      });
+    }
+  }
+
   document.getElementById('um-info').innerHTML = `
     <div style="font-weight:700;font-size:0.92rem;margin-bottom:3px">${r.client_name}</div>
     <div style="font-size:0.79rem;color:var(--g3)">📞 ${r.phone}</div>
     <div style="font-size:0.77rem;color:var(--ts);margin-top:2px">🏠 ${r.address}</div>
+    ${r.visit_date ? `<div style="font-size:0.76rem;color:#1e4fa3;margin-top:4px;font-weight:700">📅 ${r.visit_date}${r.visit_time ? ' — ' + r.visit_time : ''}</div>` : ''}
+    <div id="um-dist" style="font-size:0.76rem;color:#2563c4;margin-top:3px"></div>
     ${r.coords ? `<button class="btn btn-out2" style="padding:5px 10px;font-size:0.75rem;margin-top:8px" onclick="navToClient('${r.coords}')">🗺️ التوجه للعميل</button>` : ''}`;
   document.getElementById('mod-update').classList.add('open');
 }
