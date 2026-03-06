@@ -1199,7 +1199,7 @@ function requestLocationPermission() {
 
       // Save this first location immediately
       sb.from('technicians').update({
-        lat: lat, lng: lng, accuracy: acc,
+        lat: lat, lng: lng,
         online: true, last_seen: Date.now()
       }).eq('id', CU.id);
     },
@@ -1265,7 +1265,7 @@ function startTracking() {
     gpsLog('✅ حفظ #' + _saveCount + ' [' + source + '] دقة:' + acc + 'م');
 
     sb.from('technicians').update({
-      lat: lat, lng: lng, accuracy: acc,
+      lat: lat, lng: lng,
       online: true, last_seen: Date.now()
     }).eq('id', CU.id).then(function(r) {
       if (r.error) gpsLog('❌ DB: ' + r.error.message);
@@ -1344,7 +1344,7 @@ function stopTracking() {
   document.getElementById('t-trkicon').textContent = '📡';
   document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
   document.getElementById('t-loccrd').style.display = 'none';
-  sb.from('technicians').update({ online: false, lat: null, lng: null, accuracy: null }).eq('id', CU.id);
+  sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
   showToast('⏹️ تم إيقاف التتبع');
 }
 
@@ -1352,7 +1352,7 @@ async function doGPS() {
   navigator.geolocation.getCurrentPosition(function(pos) {
     var lat = pos.coords.latitude, lng = pos.coords.longitude;
     var acc = Math.round(pos.coords.accuracy);
-    sb.from('technicians').update({ lat: lat, lng: lng, accuracy: acc, online: true, last_seen: Date.now() }).eq('id', CU.id);
+    sb.from('technicians').update({ lat: lat, lng: lng, online: true, last_seen: Date.now() }).eq('id', CU.id);
     document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
     document.getElementById('t-lupd').textContent = '✅ ' + new Date().toLocaleTimeString('ar-EG') + ' · دقة: ' + acc + 'م';
   }, function() {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 });
