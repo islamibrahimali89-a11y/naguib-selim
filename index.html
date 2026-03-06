@@ -726,49 +726,32 @@ function checkOffline() {
 
 async function showTechMap(techId) {
   showToast('جاري تحميل موقع الفني...');
-
-  const { data: tech, error } = await sb
-    .from('technicians')
-    .select('*')
-    .eq('id', String(techId))
-    .single();
-
-  if (error || !tech) {
+  var result = await sb.from('technicians').select('*').eq('id', String(techId)).single();
+  if (result.error || !result.data) {
     showToast('تعذّر تحميل بيانات الفني');
-    console.error('showTechMap error:', error);
     return;
   }
+  var tech = result.data;
+  if (tech.role !== 'tech') { showToast('هذا الحساب ليس فنياً'); return; }
 
-  if (tech.role !== 'tech') {
-    showToast('هذا الحساب ليس فنياً');
-    return;
-  }
-
-  // تحقق: لو lat/lng فاضيين معناها الفني مفعّلش التتبع
-  if (tech.lat == null || tech.lng == null || tech.lat === '' || tech.lng === '') {
+  if (tech.lat == null || tech.lng == null) {
     document.getElementById('map-iframe').src = '';
     document.getElementById('map-info').innerHTML =
       '<div style="grid-column:span 2;background:#fef2f2;border:1px solid rgba(220,38,38,0.3);border-radius:10px;padding:16px;text-align:center">' +
       '<div style="font-size:1.5rem;margin-bottom:8px">📡</div>' +
-      '<div style="font-weight:700;color:#dc2626;margin-bottom:4px">لا يوجد موقع للفني حالياً</div>' +
-      '<div style="font-size:0.82rem;color:#64748b">' + tech.name + ' لم يفعّل التتبع أو GPS غير متاح</div>' +
-      '</div>';
+      '<div style="font-weight:700;color:#dc2626;margin-bottom:4px">لا يوجد موقع GPS دقيق حالياً</div>' +
+      '<div style="font-size:0.82rem;color:#64748b">' + tech.name + ' — التطبيق ينتظر إشارة GPS دقيقة من جهاز الفني</div>' +
+      '<div style="font-size:0.75rem;color:#94a3b8;margin-top:6px">تأكد إن GPS الجهاز مفعّل والفني في مكان مفتوح</div></div>';
     document.getElementById('mod-map').classList.add('open');
     return;
   }
 
   var tLat = parseFloat(tech.lat);
   var tLng = parseFloat(tech.lng);
+  if (isNaN(tLat) || isNaN(tLng)) { showToast('إحداثيات غير صحيحة'); return; }
 
-  if (isNaN(tLat) || isNaN(tLng)) {
-    showToast('إحداثيات غير صحيحة');
-    return;
-  }
-
-  // تحديث cache
   var idx = allUsers.findIndex(function(x) { return x.id === techId; });
   if (idx >= 0) allUsers[idx] = tech;
-
   mapDest = { lat: tLat, lng: tLng };
 
   var today = new Date().toISOString().split('T')[0];
@@ -777,34 +760,29 @@ async function showTechMap(techId) {
     .sort(function(a,b) { return (a.visit_time||'').localeCompare(b.visit_time||''); });
 
   var src = 'https://maps.google.com/maps?q=' + tLat + ',' + tLng + '&z=16&output=embed';
-
   if (pendingList.length > 0 && pendingList[0].coords) {
     var cs = pendingList[0].coords;
-    var isLnk = cs.indexOf('http') >= 0 || cs.indexOf('maps') >= 0;
-    if (!isLnk) {
+    if (cs.indexOf('http') < 0 && cs.indexOf('maps') < 0) {
       var pts = cs.replace(/\s/g,'').split(',');
       var cLat = parseFloat(pts[0]), cLng = parseFloat(pts[1]);
       if (!isNaN(cLat) && !isNaN(cLng)) {
         src = 'https://maps.google.com/maps?saddr=' + tLat + ',' + tLng + '&daddr=' + cLat + ',' + cLng + '&output=embed';
-        mapDest.dLat = cLat;
-        mapDest.dLng = cLng;
+        mapDest.dLat = cLat; mapDest.dLng = cLng;
       }
-    } else {
-      mapDest.dLink = cs;
-    }
+    } else { mapDest.dLink = cs; }
   }
 
   var lastUpd = tech.last_seen ? timeAgo(tech.last_seen) : '—';
-  var accTxt = tech.accuracy ? ' · دقة ' + Math.round(tech.accuracy) + 'م' : '';
+  var accNum = tech.accuracy ? Math.round(tech.accuracy) : null;
+  var accBadge = accNum ? (accNum < 50 ? '🟢 دقة ممتازة (' + accNum + 'م)' : accNum < 200 ? '🟡 دقة جيدة (' + accNum + 'م)' : '🔴 دقة منخفضة (' + accNum + 'م)') : '';
 
   var infoHtml = '<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">' +
-    '<div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني الحالي (مباشر)</div>' +
+    '<div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني (GPS مباشر)</div>' +
     '<div style="font-weight:700;color:#1e293b;font-size:0.9rem">' + tech.name + '</div>' +
-    '<div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ' + lastUpd + accTxt + '</div>' +
+    '<div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ' + lastUpd + '</div>' +
+    (accBadge ? '<div style="font-size:0.73rem;margin-top:3px">' + accBadge + '</div>' : '') +
     '<div style="font-size:0.71rem;color:#64748b;font-family:Tajawal,sans-serif;margin-top:1px">' + tLat.toFixed(6) + ', ' + tLng.toFixed(6) + '</div>' +
-    '<a href="https://www.google.com/maps?q=' + tLat + ',' + tLng + '" target="_blank" ' +
-    'style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">📍 فتح موقع الفني</a>' +
-    '</div>';
+    '<a href="https://www.google.com/maps?q=' + tLat + ',' + tLng + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">📍 فتح موقع الفني</a></div>';
 
   pendingList.slice(0, 3).forEach(function(r, i) {
     var coordStr = r.coords || '';
@@ -818,18 +796,14 @@ async function showTechMap(techId) {
         distTxt = dist.toFixed(1) + ' كم';
         clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + pLat + ',' + pLng;
       }
-    } else if (isLink) {
-      clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + encodeURIComponent(coordStr);
-      distTxt = 'رابط';
-    }
+    } else if (isLink) { clientMapUrl = 'https://www.google.com/maps/dir/' + tLat + ',' + tLng + '/' + encodeURIComponent(coordStr); distTxt = 'رابط'; }
     infoHtml += '<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-      '<div style="font-size:0.72rem;color:#64748b">' + (i === 0 ? 'العميل التالي' : 'العميل ' + (i+1)) + '</div>' +
+      '<div style="font-size:0.72rem;color:#64748b">' + (i===0?'العميل التالي':'العميل '+(i+1)) + '</div>' +
       '<span style="background:' + (i===0?'#2563c4':'#94a3b8') + ';color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 ' + distTxt + '</span></div>' +
       '<div style="font-weight:700;font-size:0.84rem;color:#1e293b">' + r.client_name + '</div>' +
       '<div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ ' + (r.visit_time||'—') + '</div>' +
-      (clientMapUrl ? '<a href="' + clientMapUrl + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>' : '') +
-      '</div>';
+      (clientMapUrl ? '<a href="' + clientMapUrl + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>' : '') + '</div>';
   });
 
   document.getElementById('map-iframe').src = src;
@@ -839,13 +813,9 @@ async function showTechMap(techId) {
 
 function openGMaps() {
   if (!mapDest) return;
-  if (mapDest.dLat) {
-    window.open('https://www.google.com/maps/dir/' + mapDest.lat + ',' + mapDest.lng + '/' + mapDest.dLat + ',' + mapDest.dLng, '_blank');
-  } else if (mapDest.dLink) {
-    window.open('https://www.google.com/maps/dir/' + mapDest.lat + ',' + mapDest.lng + '/' + encodeURIComponent(mapDest.dLink), '_blank');
-  } else {
-    window.open('https://www.google.com/maps?q=' + mapDest.lat + ',' + mapDest.lng, '_blank');
-  }
+  if (mapDest.dLat) window.open('https://www.google.com/maps/dir/' + mapDest.lat + ',' + mapDest.lng + '/' + mapDest.dLat + ',' + mapDest.dLng, '_blank');
+  else if (mapDest.dLink) window.open('https://www.google.com/maps/dir/' + mapDest.lat + ',' + mapDest.lng + '/' + encodeURIComponent(mapDest.dLink), '_blank');
+  else window.open('https://www.google.com/maps?q=' + mapDest.lat + ',' + mapDest.lng, '_blank');
 }
 
 // ============================================
@@ -1191,33 +1161,52 @@ function startTracking() {
   document.getElementById('t-trklbl').textContent = 'إيقاف التتبع';
   document.getElementById('t-loccrd').style.display = 'block';
 
-  // FIX 6: watchPosition بدلاً من setInterval — أدق وأسرع
+  // الحد الأقصى للدقة المقبولة (بالمتر)
+  // أقل من 200م = GPS حقيقي، أكثر = موقع تقريبي من IP/WiFi
+  var MAX_ACCURACY = 200;
+  var gotGoodFix = false;
+
   _watchId = navigator.geolocation.watchPosition(
     async pos => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      const acc = Math.round(pos.coords.accuracy);
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var acc = Math.round(pos.coords.accuracy);
+
+      // فلتر الدقة: لو الدقة أكبر من 200م يبقى ده موقع IP مش GPS
+      if (acc > MAX_ACCURACY) {
+        document.getElementById('t-coords').textContent = '⏳ في انتظار GPS دقيق...';
+        document.getElementById('t-lupd').textContent = '⚠️ الموقع الحالي تقريبي (دقة: ' + acc + 'م) — افتح GPS الجهاز';
+        // لو مفيش fix سابق كويس، ماتبعتش الموقع التقريبي
+        if (!gotGoodFix) {
+          console.log('[GPS] rejected low accuracy: ' + acc + 'm (need <' + MAX_ACCURACY + 'm)');
+          return;
+        }
+      }
+
+      // وصلنا هنا = موقع GPS دقيق
+      gotGoodFix = true;
       await sb.from('technicians').update({
-        lat, lng,
+        lat: lat, lng: lng, accuracy: acc,
         online: true,
         last_seen: Date.now()
       }).eq('id', CU.id);
-      document.getElementById('t-coords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-      document.getElementById('t-lupd').textContent = `⏰ آخر تحديث: ${new Date().toLocaleTimeString('ar-EG')} · دقة: ${acc}م`;
+      document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
+      document.getElementById('t-lupd').textContent = '✅ آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG') + ' · دقة: ' + acc + 'م';
     },
     err => {
       console.warn('GPS error:', err.message);
-      showToast('⚠️ تعذّر الحصول على الموقع');
+      document.getElementById('t-coords').textContent = '⚠️ GPS غير متاح';
+      document.getElementById('t-lupd').textContent = '⚠️ افتح إعدادات الموقع على الجهاز';
     },
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 
-  // FIX 6: ping كل 15 ثانية للـ online status حتى لو الموقع ماتغيرش
+  // ping كل 15 ثانية للـ online status
   trackInterval = setInterval(async () => {
     await sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
   }, 15000);
 
-  showToast('📡 التتبع المباشر مفعّل');
+  showToast('📡 جاري تفعيل التتبع — في انتظار GPS...');
 }
 
 function stopTracking() {
@@ -1234,11 +1223,19 @@ function stopTracking() {
 
 async function doGPS() {
   navigator.geolocation.getCurrentPosition(async pos => {
-    const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    await sb.from('technicians').update({ lat, lng, online: true, last_seen: Date.now() }).eq('id', CU.id);
-    document.getElementById('t-coords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    document.getElementById('t-lupd').textContent = '⏰ آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
-  }, () => {}, { enableHighAccuracy: true, timeout: 10000 });
+    var lat = pos.coords.latitude, lng = pos.coords.longitude;
+    var acc = Math.round(pos.coords.accuracy);
+    if (acc > 200) {
+      document.getElementById('t-coords').textContent = '⚠️ موقع تقريبي (دقة: ' + acc + 'م)';
+      document.getElementById('t-lupd').textContent = '⚠️ افتح GPS الجهاز للحصول على موقع دقيق';
+      return;
+    }
+    await sb.from('technicians').update({ lat: lat, lng: lng, accuracy: acc, online: true, last_seen: Date.now() }).eq('id', CU.id);
+    document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
+    document.getElementById('t-lupd').textContent = '✅ تحديث: ' + new Date().toLocaleTimeString('ar-EG') + ' · دقة: ' + acc + 'م';
+  }, function() {
+    document.getElementById('t-coords').textContent = '⚠️ GPS غير متاح';
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && isTracking) doGPS(); });
