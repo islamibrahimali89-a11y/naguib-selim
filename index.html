@@ -339,7 +339,7 @@ const CLD_PRESET = 'naguib_selim';
           <input type="file" multiple accept=".pdf,image/*" onchange="handleFiles(event,'a')">
           <div style="font-size:1.8rem">📂</div>
           <p style="font-size:0.8rem;color:var(--ts)"><strong style="color:var(--g5)">اسحب هنا</strong> أو اضغط للاختيار</p>
-          <p style="font-size:0.71rem;color:var(--td);margin-top:2px">PDF · JPG · PNG — حتى 10MB</p>
+          <p style="font-size:0.71rem;color:var(--td);margin-top:2px">PDF · JPG · PNG — حتى 50MB</p>
         </div>
         <div class="up-prog" id="a-prog"><div class="up-prog-bar" id="a-progbar"></div></div>
         <div class="upfiles" id="a-upfiles"></div>
@@ -711,7 +711,7 @@ function renderTechCards() {
       ${distBadge ? `<div style="margin-top:6px">${distBadge}</div>` : ''}
       <div class="tc-lastseen">⏰ ${u.last_seen ? timeAgo(u.last_seen) : 'لم يُسجّل دخول'}
         ${u.lat && u.lng && isOnline
-          ? ` · <a href="https://www.google.com/maps?q=${u.lat},${u.lng}" target="_blank" style="color:#2563c4;text-decoration:none;font-weight:700">📍 ${parseFloat(u.lat).toFixed(5)}, ${parseFloat(u.lng).toFixed(5)}</a>`
+          ? ` · <a href="javascript:void(0)" onclick="showTechMap('${u.id}')" style="color:#2563c4;text-decoration:none;font-weight:700">📍 ${parseFloat(u.lat).toFixed(5)}, ${parseFloat(u.lng).toFixed(5)}</a>`
           : (!isOnline ? '' : ' · <span style="color:#dc2626">لا يوجد موقع بعد</span>')}
       </div>
     </div>`;
@@ -724,30 +724,41 @@ function checkOffline() {
   document.getElementById('a-offbanner').classList.toggle('show', any);
 }
 
-function showTechMap(techId) {
-  const u = allUsers.find(x => x.id === techId);
-  if (!u?.lat || !u?.lng) { showToast('⚠️ الفني لم يفعّل التتبع بعد'); return; }
+async function showTechMap(techId) {
+  // CRITICAL FIX: fetch أحدث بيانات الفني مباشرة من Supabase — مش من cache
+  const { data: freshUser, error } = await sb.from('technicians').select('*').eq('id', techId).single();
+  if (error || !freshUser) { showToast('⚠️ تعذّر تحميل بيانات الفني'); return; }
+  if (!freshUser.lat || !freshUser.lng) { showToast('⚠️ الفني لم يفعّل التتبع بعد أو لم يُحدَّث موقعه'); return; }
+
+  // تحديث allUsers بأحدث بيانات هذا الفني
+  const idx = allUsers.findIndex(x => x.id === techId);
+  if (idx >= 0) allUsers[idx] = freshUser;
+
+  const u = freshUser;
   const tLat = parseFloat(u.lat), tLng = parseFloat(u.lng);
   mapDest = { lat: tLat, lng: tLng };
 
   const today = new Date().toISOString().split('T')[0];
-  // أول معاينة pending اليوم مرتبة بالوقت
   const pending = allInspections
     .filter(r => r.tech_user === techId && r.status === 'pending' && r.visit_date === today)
     .sort((a,b) => (a.visit_time||'').localeCompare(b.visit_time||''));
 
   let src = `https://maps.google.com/maps?q=${tLat},${tLng}&z=15&output=embed`;
+  const lastUpdated = u.last_seen ? timeAgo(u.last_seen) : '—';
+  const accuracy = u.accuracy ? `· دقة ${Math.round(u.accuracy)}م` : '';
+
   let infoCards = `
-    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px">
-      <div style="font-size:0.73rem;color:#64748b">الفني</div>
-      <div style="font-weight:700;color:#1e293b">${u.name}</div>
-    </div>
-    <div style="background:#f8faff;border:1px solid rgba(30,79,163,0.12);border-radius:8px;padding:10px">
-      <div style="font-size:0.73rem;color:#64748b">آخر تحديث</div>
-      <div style="font-weight:700;color:#16a34a">${timeAgo(u.last_seen)}</div>
+    <div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">
+      <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني الحالي</div>
+      <div style="font-weight:700;color:#1e293b;font-size:0.9rem">${u.name}</div>
+      <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpdated} ${accuracy}</div>
+      <div style="font-size:0.71rem;color:#64748b;margin-top:1px;font-family:'Tajawal',sans-serif">${tLat.toFixed(6)}, ${tLng.toFixed(6)}</div>
+      <a href="https://www.google.com/maps?q=${tLat},${tLng}" target="_blank"
+         style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">
+        📍 فتح موقع الفني
+      </a>
     </div>`;
 
-  // المعاينات التالية مع المسافة
   const distRows = pending.slice(0, 3).map((r, idx) => {
     const coordStr = r.coords || '';
     const isLink = coordStr.includes('http') || coordStr.includes('maps');
@@ -1296,7 +1307,7 @@ function handleFiles(e, key) { processFiles(e.target.files, key); }
 
 function processFiles(files, key) {
   Array.from(files).forEach(file => {
-    if (file.size > 10 * 1024 * 1024) { showToast('⚠️ ' + file.name + ' أكبر من 10MB'); return; }
+    if (file.size > 50 * 1024 * 1024) { showToast('⚠️ ' + file.name + ' أكبر من 50MB'); return; }
     pendingFiles[key].push(file);
     renderPendingFiles(key);
   });
@@ -1451,17 +1462,36 @@ function exportCSV() {
   const data = getReportData();
   if (!data.length) { showToast('⚠️ لا توجد بيانات للتصدير'); return; }
   const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
-  const headers = ['م','اسم العميل','الهاتف','العنوان','الفني','تاريخ الموعد','الوقت','الحالة','عدد الشبابيك','وقت الوصول','وقت تغيير الحالة','الملاحظات','تاريخ الإنشاء'];
-  const rows = data.map((r, i) => [
-    i + 1, r.client_name||'', r.phone||'', r.address||'', r.tech_name||'',
-    r.visit_date||'', r.visit_time||'', sm[r.status]||'',
-    r.windows_count||0,
-    r.arrived_at ? fmtTime(r.arrived_at) : '',
-    r.status_changed_at ? fmtTime(r.status_changed_at) : '',
-    (r.notes||'').replace(/,/g,'،'),
-    r.created_at ? fmtTime(r.created_at) : ''
-  ]);
-  const csvContent = '\uFEFF' + [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+
+  // الأعمدة المطلوبة
+  const headers = [
+    'اسم العميل',
+    'رقم التليفون',
+    'العنوان',
+    'حالة المعاينة',
+    'تاريخ وصول الفني',
+    'تاريخ تحديث حالة المعاينة',
+    'الملفات المرفقة'
+  ];
+
+  const rows = data.map(r => {
+    // الملفات: روابط مفصولة بـ |
+    const filesLinks = (r.files||[]).map(f => f.url || '').filter(Boolean).join(' | ');
+    return [
+      r.client_name || '',
+      r.phone || '',
+      r.address || '',
+      sm[r.status] || r.status || '',
+      r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل',
+      r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يتغير',
+      filesLinks || 'لا يوجد'
+    ];
+  });
+
+  const csvContent = '\uFEFF' + [headers, ...rows]
+    .map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
+    .join('\n');
+
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
