@@ -1643,13 +1643,7 @@ async function extractImages(inspId) {
   }
   showToast(`✅ تم تحميل ${images.length} صورة`);
 }
-// ============================================
-// GPS ROOT FIX v2 — Override showTechMap + openGMaps
-// أضف هذا الكود في نهاية الـ script الموجود في index.html
-// قبل </script> الأخيرة مباشرةً
-// ============================================
-
-async function showTechMap(techId) {
+  async function showTechMap(techId) {
   showToast('جاري تحميل موقع الفني...');
 
   // STEP 1: جلب fresh data من Supabase مباشرة
@@ -1781,5 +1775,7 @@ function openGMaps() {
     window.open(`https://www.google.com/maps?q=${mapDest.techLat},${mapDest.techLng}`, "_blank");
   }
 }
+
+</script>
 </body>
 </html>
