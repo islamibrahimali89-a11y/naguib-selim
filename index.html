@@ -454,13 +454,6 @@ const CLD_PRESET = 'naguib_selim';
       <div class="loc-card" id="t-loccrd">
         <div class="lc-coords" id="t-coords">—</div>
         <div class="lc-time" id="t-lupd">لم يتم التحديث بعد</div>
-        <div id="t-gps-help" style="margin-top:8px;padding:8px 10px;background:#fffbeb;border:1px solid rgba(234,179,8,0.3);border-radius:8px;font-size:0.72rem;color:#92400e;display:none">
-          <div style="font-weight:700;margin-bottom:4px">💡 لو الموقع مش دقيق:</div>
-          <div>1. افتح <strong>إعدادات الجهاز</strong> → <strong>الموقع</strong> → فعّل GPS</div>
-          <div>2. في المتصفح اختر <strong>"موقع دقيق"</strong> مش "تقريبي"</div>
-          <div>3. اطلع <strong>مكان مفتوح</strong> (بره مش جوه مبنى)</div>
-          <div>4. على Android: إعدادات → موقع → وضع <strong>"دقة عالية"</strong></div>
-        </div>
       </div>
       <div class="divider"><h2>مواعيد اليوم</h2></div>
       <div id="t-todaylist"></div>
@@ -769,7 +762,7 @@ async function showTechMap(techId) {
   }
   var lastUpd = tech.last_seen ? timeAgo(tech.last_seen) : '—';
   var accNum = tech.accuracy ? Math.round(tech.accuracy) : null;
-  var accBadge = accNum ? (accNum < 50 ? '🟢 GPS (' + accNum + 'م)' : accNum < 300 ? '🟡 WiFi (' + accNum + 'م)' : accNum < 1500 ? '🟠 برج شبكة (' + accNum + 'م)' : '🔴 تقريبي (' + accNum + 'م)') : '';
+  var accBadge = accNum ? (accNum < 50 ? '🟢 GPS (' + accNum + 'م)' : accNum < 300 ? '🟡 WiFi (' + accNum + 'م)' : accNum < 1500 ? '🟠 شبكة (' + accNum + 'م)' : '⚪ تقريبي (' + (accNum/1000).toFixed(1) + 'كم)') : '';
   var info = '<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2"><div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني (GPS)</div><div style="font-weight:700;color:#1e293b;font-size:0.9rem">' + tech.name + '</div><div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ' + lastUpd + '</div>' + (accBadge ? '<div style="font-size:0.73rem;margin-top:3px">دقة: ' + accBadge + '</div>' : '') + '<div style="font-size:0.71rem;color:#64748b;font-family:Tajawal,sans-serif;margin-top:1px">' + tLat.toFixed(6) + ', ' + tLng.toFixed(6) + '</div><a href="https://www.google.com/maps?q=' + tLat + ',' + tLng + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">📍 فتح موقع الفني</a></div>';
   pList.slice(0,3).forEach(function(r,i) {
     var cs2 = r.coords||''; var isLk = cs2.indexOf('http')>=0||cs2.indexOf('maps')>=0; var dT='—',cU=null;
@@ -1132,99 +1125,133 @@ function startTracking() {
   document.getElementById('t-trklbl').textContent = 'إيقاف التتبع';
   document.getElementById('t-loccrd').style.display = 'block';
 
-  document.getElementById('t-coords').textContent = '⏳ جاري تشغيل GPS...';
-  document.getElementById('t-lupd').textContent = '⏳ تأكد إن GPS مفعّل وصلاحية الموقع "دقيق" مش "تقريبي"';
+  document.getElementById('t-coords').textContent = '⏳ جاري تحديد الموقع...';
+  document.getElementById('t-lupd').textContent = '⏳ انتظر ثواني...';
 
-  // === طلب صلاحية الموقع الدقيق أولاً ===
-  if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'geolocation' }).then(function(result) {
-      console.log('[GPS] Permission status:', result.state);
-      if (result.state === 'denied') {
-        document.getElementById('t-lupd').textContent = '❌ صلاحية الموقع مرفوضة! افتح إعدادات المتصفح وفعّل الموقع';
-        showToast('❌ صلاحية الموقع مرفوضة — فعّلها من الإعدادات');
+  var _bestAcc = 999999;
+
+  // ============================================================
+  //  المرحلة 1: جيب أي موقع فوراً (WiFi/Cell) — زي Google Maps
+  //  enableHighAccuracy: false = سريع جداً (WiFi/Cell)
+  //  maximumAge: 15000 = يقبل موقع cached لحد 15 ثانية
+  //  ده بيدي نتيجة في أقل من 2 ثانية
+  // ============================================================
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var acc = Math.round(pos.coords.accuracy);
+      console.log('[GPS] Phase1 (fast):', lat.toFixed(6), lng.toFixed(6), 'acc:', acc + 'm');
+
+      document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
+
+      // لو دقة أقل من 5 كيلو = موقع WiFi أو Cell (مش IP) — نحفظ
+      if (acc < 5000) {
+        _bestAcc = acc;
+        document.getElementById('t-lupd').textContent = '📍 موقع مبدئي (دقة: ' + acc + 'م) — جاري التحسين بـ GPS...';
+        sb.from('technicians').update({
+          lat: lat, lng: lng, accuracy: acc,
+          online: true, last_seen: Date.now()
+        }).eq('id', CU.id).then(function(r) {
+          console.log('[GPS] Phase1 SAVED:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
+        });
+      } else {
+        // دقة أكبر من 5 كيلو = غالباً IP — لا نحفظ
+        document.getElementById('t-lupd').textContent = '⚠️ موقع تقريبي (' + (acc/1000).toFixed(1) + ' كم) — في انتظار GPS...';
+        console.log('[GPS] Phase1 SKIPPED (IP):', acc + 'm');
       }
-    });
-  }
+    },
+    function(err) {
+      console.log('[GPS] Phase1 error:', err.code, err.message);
+      document.getElementById('t-lupd').textContent = '⏳ في انتظار GPS...';
+    },
+    { enableHighAccuracy: false, maximumAge: 15000, timeout: 8000 }
+  );
 
-  var _gpsSaveCount = 0;
-
-  // === watchPosition بدقة عالية و maximumAge: 0 (موقع جديد فقط) ===
+  // ============================================================
+  //  المرحلة 2: تتبع مستمر بـ GPS الحقيقي — يحسّن الموقع تدريجياً
+  //  enableHighAccuracy: true = يشغل GPS الحقيقي
+  //  maximumAge: 5000 = يقبل موقع cached لحد 5 ثواني
+  //  ده بيحسن الدقة تدريجياً زي Google Maps
+  // ============================================================
   _watchId = navigator.geolocation.watchPosition(
     function(pos) {
       var lat = pos.coords.latitude;
       var lng = pos.coords.longitude;
       var acc = Math.round(pos.coords.accuracy);
-      var src = (acc <= 50) ? 'GPS' : (acc <= 300) ? 'WiFi' : (acc <= 1500) ? 'Cell' : 'IP';
+      console.log('[GPS] Phase2 (watch):', lat.toFixed(6), lng.toFixed(6), 'acc:', acc + 'm');
 
-      console.log('[GPS] watchPosition:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc + 'm', 'src:', src);
+      document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
 
-      // عرض الإحداثيات دايماً للفني مع مصدر الموقع
-      document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6) + ' (' + src + ')';
-
-      // === رفض مواقع IP (دقة > 1500 متر = غير موثوق) ===
-      if (acc > 1500) {
-        document.getElementById('t-lupd').textContent =
-          '⚠️ موقع IP تقريبي (' + acc + 'م) — غير دقيق!';
-        document.getElementById('t-gps-help').style.display = 'block';
-        console.log('[GPS] REJECTED — IP-based location, acc:', acc + 'm');
+      // لو دقة أسوأ من 5 كيلو = IP — ارفض
+      if (acc >= 5000) {
+        document.getElementById('t-lupd').textContent = '⚠️ موقع تقريبي (' + (acc/1000).toFixed(1) + ' كم) — GPS لسه بيشتغل...';
         return;
       }
 
-      // === موقع مقبول — نحفظ في Supabase ===
-      document.getElementById('t-gps-help').style.display = 'none';
-      _gpsSaveCount++;
-      sb.from('technicians').update({
-        lat: lat, lng: lng, accuracy: acc,
-        online: true, last_seen: Date.now()
-      }).eq('id', CU.id).then(function(res) {
-        if (res.error) console.error('[GPS] DB error:', res.error);
-        else console.log('[GPS] ✅ Saved #' + _gpsSaveCount + ':', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
-      });
+      // لو الدقة الجديدة أحسن من اللي عندنا — حدّث
+      if (acc < _bestAcc || acc < 5000) {
+        _bestAcc = acc;
+        sb.from('technicians').update({
+          lat: lat, lng: lng, accuracy: acc,
+          online: true, last_seen: Date.now()
+        }).eq('id', CU.id).then(function(r) {
+          if (r.error) console.error('[GPS] DB error:', r.error);
+          else console.log('[GPS] Phase2 SAVED:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
+        });
 
-      // === عرض حالة الدقة للفني ===
-      var timeStr = new Date().toLocaleTimeString('ar-EG');
-      if (acc <= 50) {
-        document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟢 GPS ممتاز: ' + acc + 'م (حفظ #' + _gpsSaveCount + ')';
-      } else if (acc <= 300) {
-        document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟡 WiFi جيد: ' + acc + 'م (حفظ #' + _gpsSaveCount + ')';
-      } else {
-        document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟠 برج شبكة: ' + acc + 'م (حفظ #' + _gpsSaveCount + ')';
+        var timeStr = new Date().toLocaleTimeString('ar-EG');
+        if (acc < 50) {
+          document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟢 GPS ممتاز: ' + acc + 'م';
+        } else if (acc < 300) {
+          document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟡 جيد: ' + acc + 'م';
+        } else if (acc < 1500) {
+          document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · 🟠 مقبول: ' + acc + 'م';
+        } else {
+          document.getElementById('t-lupd').textContent = '📍 ' + timeStr + ' · ⚪ تقريبي: ' + (acc/1000).toFixed(1) + ' كم — GPS بيحسّن...';
+        }
       }
     },
     function(err) {
-      console.warn('[GPS] Error:', err.code, err.message);
-      var msg = '';
-      if (err.code === 1) msg = '❌ صلاحية الموقع مرفوضة! فعّلها من إعدادات المتصفح';
-      else if (err.code === 2) msg = '⚠️ GPS غير متاح — افتح GPS من إعدادات الجهاز';
-      else if (err.code === 3) msg = '⏳ GPS بطيء — انتظر أو اطلع مكان مفتوح';
-      document.getElementById('t-lupd').textContent = msg;
-      document.getElementById('t-gps-help').style.display = 'block';
-      if (err.code === 1) showToast('❌ فعّل صلاحية الموقع من إعدادات المتصفح');
+      console.warn('[GPS] Phase2 error:', err.code, err.message);
+      // لو ما حصلناش على موقع خالص من Phase1
+      if (_bestAcc > 50000) {
+        if (err.code === 1) {
+          document.getElementById('t-lupd').textContent = '❌ صلاحية الموقع مرفوضة! افتح إعدادات المتصفح (Chrome)';
+          showToast('❌ فعّل صلاحية الموقع للمتصفح');
+        } else {
+          document.getElementById('t-lupd').textContent = '⚠️ GPS مش شغال — افتح الموقع من الإعدادات';
+        }
+      }
     },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 60000 }
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 }
   );
 
-  // === ping كل 15 ثانية + retry GPS لو ما نجحش ===
+  // ============================================================
+  //  المرحلة 3: كل 10 ثواني — ping + محاولة جديدة
+  // ============================================================
   trackInterval = setInterval(function() {
     sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
-    // لو GPS ما نجحش، نحاول مرة تانية
-    if (_gpsSaveCount === 0) {
-      console.log('[GPS] Retry — no successful save yet...');
-      navigator.geolocation.getCurrentPosition(function(pos) {
-        var lat = pos.coords.latitude, lng = pos.coords.longitude;
-        var acc = Math.round(pos.coords.accuracy);
-        console.log('[GPS] Retry result:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
-        if (acc <= 1500) {
-          _gpsSaveCount++;
-          document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
-          document.getElementById('t-lupd').textContent = '✅ ' + new Date().toLocaleTimeString('ar-EG') + ' · دقة: ' + acc + 'م';
-          sb.from('technicians').update({ lat: lat, lng: lng, accuracy: acc, online: true, last_seen: Date.now() }).eq('id', CU.id);
-        }
-      }, function(){}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
-    }
-  }, 15000);
 
-  showToast('📡 جاري تفعيل GPS...');
+    // جيب موقع جديد كل 10 ثواني (حتى لو watchPosition بطيء)
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      var acc = Math.round(pos.coords.accuracy);
+      console.log('[GPS] Interval:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc + 'm');
+      if (acc < 5000 && acc <= _bestAcc) {
+        _bestAcc = acc;
+        document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
+        var timeStr = new Date().toLocaleTimeString('ar-EG');
+        document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · دقة: ' + acc + 'م';
+        sb.from('technicians').update({
+          lat: lat, lng: lng, accuracy: acc,
+          online: true, last_seen: Date.now()
+        }).eq('id', CU.id);
+      }
+    }, function(){}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 8000 });
+  }, 10000);
+
+  showToast('📡 جاري تحديد الموقع...');
 }
 
 function stopTracking() {
@@ -1243,13 +1270,13 @@ async function doGPS() {
   navigator.geolocation.getCurrentPosition(function(pos) {
     var lat = pos.coords.latitude, lng = pos.coords.longitude;
     var acc = Math.round(pos.coords.accuracy);
-    console.log('[GPS] doGPS visibility:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
-    if (acc <= 1500) {
+    console.log('[GPS] doGPS:', lat.toFixed(6), lng.toFixed(6), 'acc:', acc);
+    if (acc < 5000) {
       sb.from('technicians').update({ lat: lat, lng: lng, accuracy: acc, online: true, last_seen: Date.now() }).eq('id', CU.id);
       document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
       document.getElementById('t-lupd').textContent = '✅ ' + new Date().toLocaleTimeString('ar-EG') + ' · دقة: ' + acc + 'م';
     }
-  }, function() {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  }, function() {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && isTracking) doGPS(); });
