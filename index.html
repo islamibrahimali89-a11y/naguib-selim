@@ -724,81 +724,6 @@ function checkOffline() {
   document.getElementById('a-offbanner').classList.toggle('show', any);
 }
 
-async function showTechMap(techId) {
-  // CRITICAL FIX: fetch أحدث بيانات الفني مباشرة من Supabase — مش من cache
-  const { data: freshUser, error } = await sb.from('technicians').select('*').eq('id', techId).single();
-  if (error || !freshUser) { showToast('⚠️ تعذّر تحميل بيانات الفني'); return; }
-  if (!freshUser.lat || !freshUser.lng) { showToast('⚠️ الفني لم يفعّل التتبع بعد أو لم يُحدَّث موقعه'); return; }
-
-  // تحديث allUsers بأحدث بيانات هذا الفني
-  const idx = allUsers.findIndex(x => x.id === techId);
-  if (idx >= 0) allUsers[idx] = freshUser;
-
-  const u = freshUser;
-  const tLat = parseFloat(u.lat), tLng = parseFloat(u.lng);
-  mapDest = { lat: tLat, lng: tLng };
-
-  const today = new Date().toISOString().split('T')[0];
-  const pending = allInspections
-    .filter(r => r.tech_user === techId && r.status === 'pending' && r.visit_date === today)
-    .sort((a,b) => (a.visit_time||'').localeCompare(b.visit_time||''));
-
-  let src = `https://maps.google.com/maps?q=${tLat},${tLng}&z=15&output=embed`;
-  const lastUpdated = u.last_seen ? timeAgo(u.last_seen) : '—';
-  const accuracy = u.accuracy ? `· دقة ${Math.round(u.accuracy)}م` : '';
-
-  let infoCards = `
-    <div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">
-      <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني الحالي</div>
-      <div style="font-weight:700;color:#1e293b;font-size:0.9rem">${u.name}</div>
-      <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpdated} ${accuracy}</div>
-      <div style="font-size:0.71rem;color:#64748b;margin-top:1px;font-family:'Tajawal',sans-serif">${tLat.toFixed(6)}, ${tLng.toFixed(6)}</div>
-      <a href="https://www.google.com/maps?q=${tLat},${tLng}" target="_blank"
-         style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">
-        📍 فتح موقع الفني
-      </a>
-    </div>`;
-
-  const distRows = pending.slice(0, 3).map((r, idx) => {
-    const coordStr = r.coords || '';
-    const isLink = coordStr.includes('http') || coordStr.includes('maps');
-    let distTxt = '—', clientMapUrl = null;
-    if (!isLink && coordStr) {
-      const parts = coordStr.replace(/\s/g,'').split(',');
-      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
-      if (!isNaN(cLat) && !isNaN(cLng)) {
-        const dist = calcDist(tLat, tLng, cLat, cLng);
-        distTxt = `${dist.toFixed(1)} كم`;
-        clientMapUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${cLat},${cLng}`;
-        if (idx === 0) { mapDest.dLat = cLat; mapDest.dLng = cLng; src = `https://maps.google.com/maps?saddr=${tLat},${tLng}&daddr=${cLat},${cLng}&output=embed`; }
-      }
-    } else if (isLink) {
-      clientMapUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${encodeURIComponent(coordStr)}`;
-      distTxt = 'رابط';
-      if (idx === 0) { mapDest.dLink = coordStr; }
-    }
-    return `<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div style="font-size:0.72rem;color:#64748b">${idx === 0 ? '🟢 العميل التالي' : `⏳ العميل ${idx+1}`}</div>
-        <span style="background:${idx===0?'#2563c4':'#94a3b8'};color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 ${distTxt}</span>
-      </div>
-      <div style="font-weight:700;font-size:0.84rem;color:#1e293b">${r.client_name}</div>
-      <div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ ${r.visit_time||'—'}</div>
-      ${clientMapUrl ? `<a href="${clientMapUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>` : ''}
-    </div>`;
-  }).join('');
-
-  document.getElementById('map-iframe').src = src;
-  document.getElementById('map-info').innerHTML = infoCards + distRows;
-  document.getElementById('mod-map').classList.add('open');
-}
-
-function openGMaps() {
-  if (!mapDest) return;
-  if (mapDest.dLat) window.open(`https://www.google.com/maps/dir/${mapDest.lat},${mapDest.lng}/${mapDest.dLat},${mapDest.dLng}`, '_blank');
-  else if (mapDest.dLink) window.open(`https://www.google.com/maps/dir/${mapDest.lat},${mapDest.lng}/${encodeURIComponent(mapDest.dLink)}`, '_blank');
-  else window.open(`https://www.google.com/maps?q=${mapDest.lat},${mapDest.lng}`, '_blank');
-}
 
 // ============================================
 // ADMIN LIST
@@ -1150,7 +1075,7 @@ function startTracking() {
       const lng = pos.coords.longitude;
       const acc = Math.round(pos.coords.accuracy);
       await sb.from('technicians').update({
-        lat, lng,
+        lat, lng, accuracy: acc,
         online: true,
         last_seen: Date.now()
       }).eq('id', CU.id);
@@ -1187,9 +1112,10 @@ function stopTracking() {
 async function doGPS() {
   navigator.geolocation.getCurrentPosition(async pos => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    await sb.from('technicians').update({ lat, lng, online: true, last_seen: Date.now() }).eq('id', CU.id);
+    const acc = Math.round(pos.coords.accuracy);
+    await sb.from('technicians').update({ lat, lng, accuracy: acc, online: true, last_seen: Date.now() }).eq('id', CU.id);
     document.getElementById('t-coords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    document.getElementById('t-lupd').textContent = '⏰ آخر تحديث: ' + new Date().toLocaleTimeString('ar-EG');
+    document.getElementById('t-lupd').textContent = `⏰ آخر تحديث: ${new Date().toLocaleTimeString('ar-EG')} · دقة: ${acc}م`;
   }, () => {}, { enableHighAccuracy: true, timeout: 10000 });
 }
 
@@ -1649,7 +1575,7 @@ async function extractImages(inspId) {
   // STEP 1: جلب fresh data من Supabase مباشرة
   const { data: tech, error } = await sb
     .from("technicians")
-    .select("id, name, lat, lng, online, last_seen, role")
+    .select("id, name, lat, lng, accuracy, online, last_seen, role")
     .eq("id", String(techId))
     .single();
 
@@ -1720,11 +1646,12 @@ async function extractImages(inspId) {
   }
 
   const lastUpd = tech.last_seen ? timeAgo(tech.last_seen) : "—";
+  const accText = tech.accuracy ? ` · دقة ${tech.accuracy}م` : "";
 
   let infoHtml = `<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">
     <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني (مباشر من Supabase)</div>
     <div style="font-weight:700;color:#1e293b;font-size:0.9rem">${tech.name}</div>
-    <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpd}</div>
+    <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpd}${accText}</div>
     <div style="font-size:0.71rem;color:#64748b;font-family:monospace;margin-top:2px">${tLat.toFixed(6)}, ${tLng.toFixed(6)}</div>
   </div>`;
 
