@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#2563c4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,13 +23,13 @@
   --sh:0 4px 24px rgba(30,79,163,0.12);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm)}
+html,body{height:100%;height:100dvh;overflow:hidden;font-family:'Cairo',sans-serif;background:var(--bg1);color:var(--tm)}
 body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%,transparent 50%),radial-gradient(ellipse at 0% 100%,rgba(30,79,163,0.04) 0%,transparent 50%)}
 /* SCROLL FIX: allow normal inner scroll, block only outer overscroll */
 .content{overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 
 /* SCREENS */
-.screen{display:none;height:100vh;overflow:hidden;flex-direction:column}
+.screen{display:none;height:100vh;height:100dvh;overflow:hidden;flex-direction:column}
 .screen.active{display:flex}
 
 /* LOGIN */
@@ -61,7 +61,7 @@ body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%
 .btn-out:hover{background:rgba(192,57,43,0.24)}
 
 /* NAV */
-.nav-bar{background:#ffffff;border-top:1px solid rgba(30,79,163,0.15);box-shadow:0 -2px 10px rgba(30,79,163,0.07);display:flex;flex-shrink:0;z-index:200;position:sticky;bottom:0;width:100%}
+.nav-bar{background:#ffffff;border-top:1px solid rgba(30,79,163,0.15);box-shadow:0 -2px 10px rgba(30,79,163,0.07);display:flex;flex-shrink:0;z-index:200;width:100%;padding-bottom:env(safe-area-inset-bottom,0)}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:6px 4px 5px;cursor:pointer;font-size:0.67rem;color:#94a3b8;border-top:2px solid transparent;transition:all .2s;gap:2px}
 .nav-item.active{color:#1e4fa3;border-top-color:#2563c4}
 .nav-icon{font-size:1.1rem;line-height:1}
