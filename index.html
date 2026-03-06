@@ -277,7 +277,7 @@ const CLD_PRESET = 'naguib_selim';
   <div class="app-hdr">
     <div class="hdr-logo"><img src="https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo" alt="نجيب سليم" onerror="this.style.display='none'"></div>
     <div class="hdr-mid"><div class="ht">لوحة الإدارة</div><div class="hs" id="a-datestr"></div></div>
-    <div class="hdr-right"><span class="badge b-admin">👑 Admin</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
+    <div class="hdr-right"><span class="badge b-admin" id="a-rolebadge">👑 Admin</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
   </div>
   <div class="content">
     <div class="panel active" id="ap-dash">
@@ -331,6 +331,14 @@ const CLD_PRESET = 'naguib_selim';
           </div>
         </div>
         <div class="fg"><div class="fl">🪟 عدد الشبابيك</div><input class="fi" type="number" id="a-wins" placeholder="0" min="0" style="width:100%"></div>
+        <div class="fg"><div class="fl">💳 حالة الدفع</div>
+          <select class="fs" id="a-pay">
+            <option value="">-- اختر حالة الدفع --</option>
+            <option value="call_center">تحصيل كول سنتر</option>
+            <option value="branch">تحصيل فرع</option>
+            <option value="inspector">تحصيل معاين</option>
+          </select>
+        </div>
         <div class="fg"><div class="fl">📝 ملاحظات</div><textarea class="fta" id="a-nt" placeholder="مقاسات، ملاحظات خاصة..."></textarea></div>
       </div>
       <div class="card">
@@ -430,7 +438,7 @@ const CLD_PRESET = 'naguib_selim';
     <div class="nav-item" onclick="aTab('add',this)"><div class="nav-icon">➕</div>إضافة</div>
     <div class="nav-item" onclick="aTab('list',this)"><div class="nav-icon">📋</div>المعاينات</div>
     <div class="nav-item" onclick="aTab('report',this)"><div class="nav-icon">📈</div>تقارير</div>
-    <div class="nav-item" onclick="aTab('users',this)"><div class="nav-icon">👥</div>الفنيون</div>
+    <div class="nav-item" id="nav-users" onclick="aTab('users',this)"><div class="nav-icon">👥</div>الفنيون</div>
   </nav>
 </div>
 
@@ -586,6 +594,54 @@ function showToast(msg) {
 }
 
 // ============================================
+// CAIRO TIMEZONE HELPERS (Africa/Cairo = UTC+2)
+// ============================================
+function cairoNow() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+}
+function cairoISO() {
+  var d = cairoNow();
+  var y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), dd = String(d.getDate()).padStart(2,'0');
+  var hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0'), ss = String(d.getSeconds()).padStart(2,'0');
+  return y+'-'+m+'-'+dd+'T'+hh+':'+mm+':'+ss+'+02:00';
+}
+function cairoDate() {
+  var d = cairoNow();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function cairoTime() {
+  return cairoNow().toLocaleTimeString('ar-EG', { timeZone: 'Africa/Cairo' });
+}
+
+// ============================================
+// AUTO-CLEANUP: مسح الملفات القديمة (أكتر من 60 يوم)
+// ============================================
+async function cleanupOldFiles() {
+  try {
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 60);
+    var cutoffStr = cutoff.toISOString().split('T')[0];
+
+    var { data, error } = await sb.from('inspections')
+      .select('id, files, created_at')
+      .lt('created_at', cutoffStr + 'T00:00:00')
+      .not('files', 'is', null);
+
+    if (error || !data || !data.length) return;
+
+    var cleaned = 0;
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      if (r.files && r.files.length > 0) {
+        await sb.from('inspections').update({ files: [] }).eq('id', r.id);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) console.log('[CLEANUP] Cleared files from ' + cleaned + ' inspections older than 60 days');
+  } catch(e) { console.log('[CLEANUP] Error:', e); }
+}
+
+// ============================================
 // LOGIN — with persistent session (localStorage)
 // ============================================
 async function doLogin() {
@@ -604,7 +660,7 @@ async function doLogin() {
   // حفظ الجلسة في localStorage عشان ميعملش logout لما يقفل Chrome
   try { localStorage.setItem('ns_session', JSON.stringify({ id: data.id, pass: data.pass })); } catch(e) {}
 
-  if (data.role === 'admin') { showScreen('sc-admin'); initAdmin(); }
+  if (data.role === 'admin' || data.role === 'supervisor') { showScreen('sc-admin'); initAdmin(); }
   else { showScreen('sc-tech'); initTech(); }
 }
 
@@ -649,7 +705,7 @@ async function tryAutoLogin() {
 
     // تسجيل دخول تلقائي
     CU = data;
-    if (data.role === 'admin') { showScreen('sc-admin'); initAdmin(); }
+    if (data.role === 'admin' || data.role === 'supervisor') { showScreen('sc-admin'); initAdmin(); }
     else { showScreen('sc-tech'); initTech(); }
     showToast('✅ تم تسجيل الدخول تلقائياً — ' + data.name);
   } catch(e) {
@@ -669,6 +725,8 @@ function showScreen(id) {
 }
 
 function aTab(name, el) {
+  // المشرف ممنوع من تاب الفنيون
+  if (name === 'users' && CU && CU.role === 'supervisor') { showToast('⛔ هذه الصلاحية للأدمن فقط'); return; }
   document.querySelectorAll('#sc-admin .panel').forEach(p => p.classList.remove('active'));
   document.getElementById('ap-' + name).classList.add('active');
   document.querySelectorAll('#sc-admin .nav-item').forEach(n => n.classList.remove('active'));
@@ -691,13 +749,26 @@ function tTab(name, el) {
 // ADMIN INIT
 // ============================================
 async function initAdmin() {
-  const now = new Date();
+  const now = cairoNow();
   document.getElementById('a-datestr').textContent = now.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long' });
-  document.getElementById('a-vd').value = now.toISOString().split('T')[0];
+  document.getElementById('a-vd').value = cairoDate();
+
+  // === Supervisor: إخفاء تاب الفنيون + تغيير البادج ===
+  if (CU && CU.role === 'supervisor') {
+    document.getElementById('a-rolebadge').innerHTML = '📋 مشرف';
+    document.getElementById('nav-users').style.display = 'none';
+  } else {
+    document.getElementById('a-rolebadge').innerHTML = '👑 Admin';
+    document.getElementById('nav-users').style.display = '';
+  }
+
   await loadAllData();
   initAdminDash();
   populateTechSelect();
   setInterval(async () => { await loadAllData(); initAdminDash(); checkOffline(); }, 15000);
+
+  // تنظيف الملفات القديمة (أكتر من 60 يوم) — مرة واحدة عند الدخول
+  cleanupOldFiles();
 }
 
 async function loadAllData() {
@@ -719,7 +790,7 @@ function initAdminDash() {
 }
 
 function renderTechCards() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = cairoDate();
   // فقط الفنيين (role=tech) — الـ admin مش فني
   const techs = allUsers.filter(u => u.role === 'tech');
   const c = document.getElementById('a-techcards');
@@ -803,7 +874,7 @@ async function showTechMap(techId) {
   if (idx >= 0) allUsers[idx] = tech;
   mapDest = { lat: tLat, lng: tLng };
 
-  var today = new Date().toISOString().split('T')[0];
+  var today = cairoDate();
   var pList = allInspections.filter(function(r) { return r.tech_user === String(techId) && r.status === 'pending' && r.visit_date === today; }).sort(function(a,b) { return (a.visit_time||'').localeCompare(b.visit_time||''); });
   var src = 'https://maps.google.com/maps?q=' + tLat + ',' + tLng + '&z=16&output=embed';
   if (pList.length > 0 && pList[0].coords) {
@@ -909,7 +980,7 @@ function buildCard(r, isAdmin) {
   const updBtn = !isAdmin
     ? (() => {
         // تحقق من الترتيب الإلزامي — الزرار يتغير بناء على الترتيب
-        const today = new Date().toISOString().split('T')[0];
+        const today = cairoDate();
         const todayPending = allInspections
           .filter(x => x.tech_user === r.tech_user && x.visit_date === today && x.status === 'pending')
           .sort((a,b) => (a.visit_time||'99:99').localeCompare(b.visit_time||'99:99'));
@@ -923,6 +994,9 @@ function buildCard(r, isAdmin) {
       })()
     : '';
   const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
+
+  const payLabels = { call_center:'تحصيل كول سنتر', branch:'تحصيل فرع', inspector:'تحصيل معاين' };
+  const payHtml = r.payment_status && payLabels[r.payment_status] ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;border:1px solid rgba(234,179,8,0.3);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#92400e">💳 ${payLabels[r.payment_status]}</span>` : '';
 
   // رقم unique
   const inspNum = String(r.id).slice(-5);
@@ -939,7 +1013,7 @@ function buildCard(r, isAdmin) {
     <div class="ic-addr">🏠 ${r.address}</div>
     ${timeBox}
     ${locHtml}
-    ${winsHtml ? `<div style="margin-bottom:7px">${winsHtml}</div>` : ''}
+    ${winsHtml || payHtml ? `<div style="margin-bottom:7px;display:flex;gap:6px;flex-wrap:wrap">${winsHtml}${payHtml}</div>` : ''}
     ${r.notes ? `<div style="font-size:0.76rem;color:#64748b;margin-bottom:7px">📝 ${r.notes}</div>` : ''}
     ${fHtml}
     <div class="ic-foot"><span class="ic-tech" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">👷 ${r.tech_name||'—'} · ${r.visit_date||'—'}</span><div style="display:flex;gap:4px;flex-wrap:nowrap;align-items:center">${trkBtn}${arrivedBtn}${delBtn}${updBtn}</div></div>
@@ -997,8 +1071,9 @@ async function saveInspection() {
     status: document.getElementById('a-st').value,
     notes: document.getElementById('a-nt').value.trim(),
     windows_count: parseInt(document.getElementById('a-wins').value) || 0,
+    payment_status: document.getElementById('a-pay').value,
     files: uploadedLinks,
-    created_at: new Date().toISOString()
+    created_at: cairoISO()
   });
   btn.disabled = false; btn.textContent = '💾 حفظ المعاينة';
   if (error) { showToast('❌ خطأ في الحفظ: ' + error.message); return; }
@@ -1011,9 +1086,9 @@ async function saveInspection() {
 }
 
 function resetAdminForm() {
-  ['a-cn','a-cp','a-ca','a-crd','a-crd-paste','a-nt','a-wins'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  ['a-cn','a-cp','a-ca','a-crd','a-crd-paste','a-nt','a-wins','a-pay'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   const msg = document.getElementById('a-crd-msg'); if(msg) msg.style.display='none';
-  document.getElementById('a-vd').value = new Date().toISOString().split('T')[0];
+  document.getElementById('a-vd').value = cairoDate();
   document.getElementById('a-vt').value = '';
   document.getElementById('a-st').value = 'pending';
   document.getElementById('a-tech').value = '';
@@ -1094,6 +1169,7 @@ function populateTechSelect() {
 // USERS MANAGEMENT
 // ============================================
 async function addUser() {
+  if (CU && CU.role === 'supervisor') { showToast('⛔ المشرف لا يمكنه إضافة فنيين'); return; }
   const name = document.getElementById('nu-n').value.trim();
   const user = document.getElementById('nu-u').value.trim().toLowerCase();
   const pass = document.getElementById('nu-p').value;
@@ -1125,6 +1201,7 @@ function renderUsers() {
 }
 
 async function delUser(id) {
+  if (CU && CU.role === 'supervisor') { showToast('⛔ المشرف لا يمكنه حذف فنيين'); return; }
   if (!confirm('حذف هذا الفني؟')) return;
   await sb.from('technicians').delete().eq('id', id);
   await loadAllData();
@@ -1137,7 +1214,7 @@ async function delUser(id) {
 // TECH INIT
 // ============================================
 async function initTech() {
-  const now = new Date();
+  const now = cairoNow();
   document.getElementById('t-namehdr').textContent = CU.name;
   document.getElementById('t-dstr').textContent = now.toLocaleDateString('ar-EG', { weekday:'long' });
   document.getElementById('t-tdate').textContent = now.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
@@ -1149,7 +1226,7 @@ async function initTech() {
 }
 
 async function renderTechToday() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = cairoDate();
   const { data } = await sb.from('inspections').select('*').eq('tech_user', CU.id).eq('visit_date', today).order('visit_time');
   const ins = data || [];
   document.getElementById('t-tcount').textContent = ins.length;
@@ -1404,7 +1481,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && is
 // ============================================
 function openUpdateModal(id) {
   // تحقق من الترتيب — الفني لازم يعمل update للمعاينة الأولى pending أولاً
-  const today = new Date().toISOString().split('T')[0];
+  const today = cairoDate();
   const todayPending = allInspections
     .filter(r => r.tech_user === CU.id && r.visit_date === today && r.status === 'pending')
     .sort((a,b) => (a.visit_time||'99:99').localeCompare(b.visit_time||'99:99'));
@@ -1494,7 +1571,7 @@ async function saveUpdate() {
     notes: document.getElementById('um-nt').value.trim(),
     files: [...existingFiles, ...uploadedLinks]
   };
-  if (statusChanged) updateData.status_changed_at = new Date().toISOString();
+  if (statusChanged) updateData.status_changed_at = cairoISO();
   const { error } = await sb.from('inspections').update(updateData).eq('id', activeUpdateId);
   btn.disabled = false; btn.textContent = '💾 حفظ التحديث';
   if (error) { showToast('❌ خطأ: ' + error.message); return; }
@@ -1579,7 +1656,7 @@ function timeAgo(ts) {
 // ARRIVED
 // ============================================
 async function markArrived(id) {
-  const now = new Date().toISOString();
+  const now = cairoISO();
   const { error } = await sb.from('inspections').update({ arrived_at: now }).eq('id', id);
   if (error) { showToast('❌ خطأ: ' + error.message); return; }
   await loadAllData();
@@ -1597,7 +1674,7 @@ function fmtTime(iso) {
 // REPORTS
 // ============================================
 function initReport() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = cairoDate();
   const firstDay = today.substring(0,7) + '-01';
   document.getElementById('rp-from').value = firstDay;
   document.getElementById('rp-to').value = today;
@@ -1657,6 +1734,7 @@ function renderReport() {
         <div style="background:${r.arrived_at?'#f0fdf4':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">📍 وصل</span><br><strong style="color:${r.arrived_at?'#16a34a':'#94a3b8'}">${r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل'}</strong></div>
         <div style="background:${r.status_changed_at?'#f0f4ff':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">🔄 تغيير الحالة</span><br><strong style="color:${r.status_changed_at?'#1e4fa3':'#94a3b8'}">${r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يُغيَّر'}</strong></div>
         ${r.windows_count ? `<div style="background:#f0f4ff;border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#94a3b8">🪟 عدد الشبابيك</span><br><strong style="color:#1e4fa3;font-size:1.05rem">${r.windows_count} شباك</strong></div>` : ''}
+        ${r.payment_status ? `<div style="background:#fef3c7;border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#92400e">💳 حالة الدفع</span><br><strong style="color:#92400e;font-size:1.05rem">${{'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'}[r.payment_status]||r.payment_status}</strong></div>` : ''}
       </div>
       ${r.notes ? `<div style="margin-top:7px;font-size:0.75rem;color:#64748b;background:#f8faff;border-radius:6px;padding:6px">📝 ${r.notes}</div>` : ''}
     </div>`).join('') : '<div class="empty"><div class="ei">📊</div><p>لا توجد بيانات للفترة المحددة</p></div>';
@@ -1675,7 +1753,8 @@ function exportCSV() {
     'حالة المعاينة',
     'تاريخ وصول الفني',
     'تاريخ تحديث حالة المعاينة',
-    'الملفات المرفقة'
+    'الملفات المرفقة',
+    'حالة الدفع'
   ];
 
   const rows = data.map(r => {
@@ -1688,7 +1767,8 @@ function exportCSV() {
       sm[r.status] || r.status || '',
       r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل',
       r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يتغير',
-      filesLinks || 'لا يوجد'
+      filesLinks || 'لا يوجد',
+      {'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'}[r.payment_status] || ''
     ];
   });
 
@@ -1700,7 +1780,7 @@ function exportCSV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `تقرير-نجيب-سليم-${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = `تقرير-نجيب-سليم-${cairoDate()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   showToast('✅ تم تصدير ' + data.length + ' معاينة');
@@ -1712,7 +1792,7 @@ function exportCSV() {
 let sessionStart = null;
 
 async function startSession() {
-  sessionStart = new Date().toISOString();
+  sessionStart = cairoISO();
   await sb.from('online_sessions').insert({
     tech_user: CU.id, tech_name: CU.name,
     login_at: sessionStart, logout_at: null, duration_min: null
@@ -1725,7 +1805,7 @@ async function endSession() {
   const start = new Date(sessionStart);
   const durMin = Math.round((now - start) / 60000);
   await sb.from('online_sessions')
-    .update({ logout_at: now.toISOString(), duration_min: durMin })
+    .update({ logout_at: cairoISO(), duration_min: durMin })
     .eq('tech_user', CU.id).is('logout_at', null);
   sessionStart = null;
 }
