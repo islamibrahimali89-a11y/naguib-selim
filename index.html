@@ -586,7 +586,7 @@ function showToast(msg) {
 }
 
 // ============================================
-// LOGIN
+// LOGIN — with persistent session (localStorage)
 // ============================================
 async function doLogin() {
   const u = document.getElementById('l-u').value.trim();
@@ -600,6 +600,10 @@ async function doLogin() {
   }
   document.getElementById('l-err').style.display = 'none';
   CU = data;
+
+  // حفظ الجلسة في localStorage عشان ميعملش logout لما يقفل Chrome
+  try { localStorage.setItem('ns_session', JSON.stringify({ id: data.id, pass: data.pass })); } catch(e) {}
+
   if (data.role === 'admin') { showScreen('sc-admin'); initAdmin(); }
   else { showScreen('sc-tech'); initTech(); }
 }
@@ -616,10 +620,45 @@ async function doLogout() {
     await sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
   }
   CU = null;
+
+  // مسح الجلسة المحفوظة — عشان ميرجعش يدخل تلقائي
+  try { localStorage.removeItem('ns_session'); } catch(e) {}
+
   showScreen('sc-login');
   document.getElementById('l-u').value = '';
   document.getElementById('l-p').value = '';
 }
+
+// ============================================
+// AUTO-LOGIN — استرجاع الجلسة لما يفتح التطبيق تاني
+// ============================================
+async function tryAutoLogin() {
+  try {
+    var saved = localStorage.getItem('ns_session');
+    if (!saved) return;
+    var session = JSON.parse(saved);
+    if (!session.id || !session.pass) return;
+
+    // تحقق من البيانات في Supabase
+    var { data, error } = await sb.from('technicians').select('*').eq('id', session.id).single();
+    if (error || !data || data.pass !== session.pass) {
+      // الباسورد اتغير أو اليوزر اتمسح — امسح الجلسة
+      localStorage.removeItem('ns_session');
+      return;
+    }
+
+    // تسجيل دخول تلقائي
+    CU = data;
+    if (data.role === 'admin') { showScreen('sc-admin'); initAdmin(); }
+    else { showScreen('sc-tech'); initTech(); }
+    showToast('✅ تم تسجيل الدخول تلقائياً — ' + data.name);
+  } catch(e) {
+    console.log('Auto-login error:', e);
+  }
+}
+
+// تشغيل Auto-login لما الصفحة تفتح
+tryAutoLogin();
 
 // ============================================
 // SCREENS & TABS
@@ -1770,7 +1809,17 @@ document.querySelectorAll('.modal-ov').forEach(o => o.addEventListener('click', 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 // FIX 2: منع الخروج من التطبيق إلا بزر تسجيل الخروج
-window.addEventListener('beforeunload', e => { if (CU) { e.preventDefault(); e.returnValue = ''; } });
+// بما إن عندنا auto-login — مش محتاجين نمنع الخروج
+// الفني يقدر يقفل ويرجع والجلسة هتترجع تلقائي
+window.addEventListener('beforeunload', function() {
+  // لو الفني فاتح التتبع — ابعت آخر ping قبل ما يقفل
+  if (CU && CU.role === 'tech' && isTracking) {
+    navigator.sendBeacon && navigator.sendBeacon(
+      SB_URL + '/rest/v1/technicians?id=eq.' + CU.id,
+      '' // just a ping
+    );
+  }
+});
 
 // SCROLL FIX: منع pull-to-refresh بس من غير ما يمنع الـ scroll العادي
 let _lastTouchY = 0;
