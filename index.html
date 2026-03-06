@@ -1643,6 +1643,143 @@ async function extractImages(inspId) {
   }
   showToast(`✅ تم تحميل ${images.length} صورة`);
 }
-</script>
+// ============================================
+// GPS ROOT FIX v2 — Override showTechMap + openGMaps
+// أضف هذا الكود في نهاية الـ script الموجود في index.html
+// قبل </script> الأخيرة مباشرةً
+// ============================================
+
+async function showTechMap(techId) {
+  showToast('جاري تحميل موقع الفني...');
+
+  // STEP 1: جلب fresh data من Supabase مباشرة
+  const { data: tech, error } = await sb
+    .from("technicians")
+    .select("id, name, lat, lng, online, last_seen, role")
+    .eq("id", String(techId))
+    .single();
+
+  if (error || !tech) {
+    showToast("خطأ في تحميل بيانات الفني");
+    console.error("[showTechMap v2] error:", error);
+    return;
+  }
+
+  // STEP 2: تأكد إنه فني وليس أدمن — هذا هو المانع الجذري
+  if (tech.role !== "tech") {
+    showToast("هذا الحساب ليس فنياً!");
+    console.error("[showTechMap v2] Role mismatch! Expected tech, got:", tech.role);
+    return;
+  }
+
+  console.log("[showTechMap v2] Tech OK:", tech.name, "lat:", tech.lat, "lng:", tech.lng);
+
+  // STEP 3: تحقق من الإحداثيات
+  if (tech.lat == null || tech.lng == null) {
+    document.getElementById("map-modal-title") && (document.getElementById("map-modal-title").textContent = "موقع " + tech.name);
+    document.getElementById("map-iframe").src = "";
+    document.getElementById("map-info").innerHTML =
+      "<div style='grid-column:span 2;background:#fef2f2;border:1px solid rgba(220,38,38,0.3);border-radius:10px;padding:16px;text-align:center'>" +
+      "<div style='font-size:1.5rem;margin-bottom:8px'>📡</div>" +
+      "<div style='font-weight:700;color:#dc2626;margin-bottom:4px'>لا يوجد موقع للفني</div>" +
+      "<div style='font-size:0.82rem;color:#64748b'>" + tech.name + " لم يفعّل التتبع بعد</div>" +
+      "</div>";
+    const btn = document.getElementById("map-open-btn");
+    if (btn) btn.style.display = "none";
+    document.getElementById("mod-map").classList.add("open");
+    return;
+  }
+
+  const tLat = parseFloat(tech.lat);
+  const tLng = parseFloat(tech.lng);
+
+  if (isNaN(tLat) || isNaN(tLng)) {
+    showToast("إحداثيات الفني غير صحيحة في قاعدة البيانات");
+    console.error("[showTechMap v2] NaN coords! lat:", tech.lat, "lng:", tech.lng);
+    return;
+  }
+
+  // STEP 4: mapDest بموقع الفني فقط — اسماء مختلفة تماماً
+  mapDest = { techLat: tLat, techLng: tLng, techName: tech.name };
+  console.log("[showTechMap v2] mapDest =>", mapDest);
+
+  // STEP 5: بناء الـ iframe
+  const today = new Date().toISOString().split("T")[0];
+  const pending = allInspections
+    .filter(r => r.tech_user === String(techId) && r.status === "pending" && r.visit_date === today)
+    .sort((a,b) => (a.visit_time||"").localeCompare(b.visit_time||""));
+
+  let iframeSrc = `https://maps.google.com/maps?q=${tLat},${tLng}&z=16&output=embed`;
+
+  if (pending.length > 0 && pending[0].coords) {
+    const cs = pending[0].coords;
+    const isLink = cs.includes("http") || cs.includes("maps");
+    if (!isLink) {
+      const pts = cs.replace(/\s/g, "").split(",");
+      const cLat = parseFloat(pts[0]), cLng = parseFloat(pts[1]);
+      if (!isNaN(cLat) && !isNaN(cLng)) {
+        iframeSrc = `https://maps.google.com/maps?saddr=${tLat},${tLng}&daddr=${cLat},${cLng}&output=embed`;
+        mapDest.dLat = cLat;
+        mapDest.dLng = cLng;
+      }
+    }
+  }
+
+  const lastUpd = tech.last_seen ? timeAgo(tech.last_seen) : "—";
+
+  let infoHtml = `<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2">
+    <div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني (مباشر من Supabase)</div>
+    <div style="font-weight:700;color:#1e293b;font-size:0.9rem">${tech.name}</div>
+    <div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ${lastUpd}</div>
+    <div style="font-size:0.71rem;color:#64748b;font-family:monospace;margin-top:2px">${tLat.toFixed(6)}, ${tLng.toFixed(6)}</div>
+  </div>`;
+
+  pending.slice(0, 3).forEach((r, idx) => {
+    const cs = r.coords || "";
+    const isLink = cs.includes("http") || cs.includes("maps");
+    let distTxt = "—", clientUrl = null;
+    if (!isLink && cs) {
+      const pts = cs.replace(/\s/g,"").split(",");
+      const cLat = parseFloat(pts[0]), cLng = parseFloat(pts[1]);
+      if (!isNaN(cLat) && !isNaN(cLng)) {
+        const dist = calcDist(tLat, tLng, cLat, cLng);
+        distTxt = dist.toFixed(1) + " كم";
+        clientUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${cLat},${cLng}`;
+      }
+    } else if (isLink) {
+      clientUrl = `https://www.google.com/maps/dir/${tLat},${tLng}/${encodeURIComponent(cs)}`;
+      distTxt = "رابط";
+    }
+    infoHtml += `<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:0.72rem;color:#64748b">${idx===0 ? "العميل التالي" : "العميل "+(idx+1)}</div>
+        <span style="background:${idx===0?"#2563c4":"#94a3b8"};color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">${distTxt}</span>
+      </div>
+      <div style="font-weight:700;font-size:0.84rem;color:#1e293b">${r.client_name}</div>
+      <div style="font-size:0.73rem;color:#64748b;margin-top:2px">${r.visit_time||"—"}</div>
+      ${clientUrl ? '<a href="' + clientUrl + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">اتجاهات للعميل</a>' : ""}
+    </div>`;
+  });
+
+  document.getElementById("map-modal-title") && (document.getElementById("map-modal-title").textContent = "موقع " + tech.name);
+  document.getElementById("map-iframe").src = iframeSrc;
+  document.getElementById("map-info").innerHTML = infoHtml;
+  
+  const btn = document.getElementById("map-open-btn");
+  if (btn) { btn.style.display = "flex"; btn.textContent = "فتح موقع " + tech.name + " في Google Maps"; }
+  
+  document.getElementById("mod-map").classList.add("open");
+}
+
+// Override openGMaps — يستخدم techLat/techLng فقط
+function openGMaps() {
+  if (!mapDest || !mapDest.techLat) { showToast("لا يوجد موقع"); return; }
+  console.log("[openGMaps v2] tech coords:", mapDest.techLat, mapDest.techLng);
+  if (mapDest.dLat) {
+    window.open(`https://www.google.com/maps/dir/${mapDest.techLat},${mapDest.techLng}/${mapDest.dLat},${mapDest.dLng}`, "_blank");
+  } else {
+    window.open(`https://www.google.com/maps?q=${mapDest.techLat},${mapDest.techLng}`, "_blank");
+  }
+}
 </body>
 </html>
