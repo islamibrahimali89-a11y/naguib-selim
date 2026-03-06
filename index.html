@@ -448,6 +448,20 @@ const CLD_PRESET = 'naguib_selim';
         <div class="th-num" id="t-tcount">0</div>
         <div class="th-lbl">معاينة اليوم</div>
       </div>
+      <!-- Step 1: Permission request button -->
+      <div id="t-perm-box" style="display:none;background:#fff7ed;border:1px solid rgba(234,88,12,0.3);border-radius:13px;padding:14px;margin-bottom:8px;text-align:center">
+        <div style="font-size:1.3rem;margin-bottom:6px">📍</div>
+        <div style="font-weight:700;color:#ea580c;font-size:0.88rem;margin-bottom:6px">مطلوب: صلاحية الموقع لمتصفح Chrome</div>
+        <div style="font-size:0.76rem;color:#64748b;margin-bottom:10px;text-align:right;line-height:1.7">
+          <strong>خطوة 1:</strong> اضغط الزرار تحت ← هيظهرلك إذن الموقع ← اضغط <strong>"Allow"</strong> أو <strong>"سماح"</strong><br>
+          <strong>خطوة 2:</strong> لو ماظهرش ← روح: <strong>إعدادات الهاتف → التطبيقات → Chrome → الأذونات → الموقع → سماح</strong>
+        </div>
+        <button onclick="requestLocationPermission()" style="width:100%;padding:12px;background:linear-gradient(135deg,#ea580c,#f97316);border:none;border-radius:10px;color:#fff;font-family:'Cairo',sans-serif;font-weight:700;font-size:0.9rem;cursor:pointer">
+          📍 اضغط هنا لتفعيل صلاحية الموقع
+        </button>
+        <div id="t-perm-status" style="font-size:0.74rem;color:#64748b;margin-top:8px"></div>
+      </div>
+
       <button class="trk-btn trk-on" id="t-trkbtn" onclick="toggleTracking()">
         <span id="t-trkicon">📡</span><span id="t-trklbl">تفعيل التتبع المباشر</span>
       </button>
@@ -456,7 +470,6 @@ const CLD_PRESET = 'naguib_selim';
         <div class="lc-time" id="t-lupd">لم يتم التحديث بعد</div>
         <div id="t-gps-log" style="margin-top:6px;font-size:0.68rem;color:#64748b;max-height:80px;overflow-y:auto;font-family:'Tajawal',monospace;background:#f8faff;border-radius:6px;padding:5px 8px;display:none"></div>
       </div>
-      <button id="t-diagbtn" style="display:none;width:100%;padding:8px;margin-bottom:8px;background:#fff7ed;border:1px solid rgba(234,88,12,0.3);border-radius:9px;color:#ea580c;font-family:'Cairo',sans-serif;font-weight:700;font-size:0.78rem;cursor:pointer" onclick="runGPSDiag()">🔧 تشخيص GPS — اضغط هنا لو الموقع مش شغال</button>
       <div class="divider"><h2>مواعيد اليوم</h2></div>
       <div id="t-todaylist"></div>
     </div>
@@ -1092,6 +1105,8 @@ async function initTech() {
   await sb.from('technicians').update({ online: true, last_seen: Date.now(), lat: null, lng: null }).eq('id', CU.id);
   await startSession();
   await renderTechToday();
+  // Check location permission for Chrome
+  await checkLocationPermission();
 }
 
 async function renderTechToday() {
@@ -1111,9 +1126,105 @@ async function renderTechHist() {
 }
 
 // ============================================
-// TRACKING — FIX 6: دقة عالية + تحديث كل 15 ثانية
+// TRACKING — V5: Permission-first + progressive location
 // ============================================
 let _watchId = null;
+let _locationGranted = false;
+
+// Check and request permission on tech login
+async function checkLocationPermission() {
+  // Check if permission API available
+  if (navigator.permissions && navigator.permissions.query) {
+    try {
+      var result = await navigator.permissions.query({ name: 'geolocation' });
+      console.log('[PERM] Status:', result.state);
+      if (result.state === 'granted') {
+        _locationGranted = true;
+        document.getElementById('t-perm-box').style.display = 'none';
+        document.getElementById('t-trkbtn').style.display = '';
+        return;
+      }
+      if (result.state === 'denied') {
+        document.getElementById('t-perm-box').style.display = 'block';
+        document.getElementById('t-trkbtn').style.display = 'none';
+        document.getElementById('t-perm-status').innerHTML =
+          '<span style="color:#dc2626;font-weight:700">❌ الصلاحية مرفوضة!</span><br>' +
+          'روح: <strong>إعدادات الهاتف → التطبيقات → Chrome → الأذونات → الموقع → سماح</strong><br>' +
+          'بعدين ارجع هنا واضغط الزرار تاني';
+        return;
+      }
+      // state === 'prompt' — show permission box
+      document.getElementById('t-perm-box').style.display = 'block';
+      document.getElementById('t-trkbtn').style.display = 'none';
+
+      // Listen for permission change
+      result.onchange = function() {
+        console.log('[PERM] Changed to:', result.state);
+        if (result.state === 'granted') {
+          _locationGranted = true;
+          document.getElementById('t-perm-box').style.display = 'none';
+          document.getElementById('t-trkbtn').style.display = '';
+          showToast('✅ تم تفعيل صلاحية الموقع!');
+        }
+      };
+    } catch(e) {
+      console.log('[PERM] API error:', e);
+      // Can't check — show tracking button directly
+      document.getElementById('t-perm-box').style.display = 'none';
+      document.getElementById('t-trkbtn').style.display = '';
+    }
+  } else {
+    // No permission API — show tracking button directly
+    document.getElementById('t-perm-box').style.display = 'none';
+    document.getElementById('t-trkbtn').style.display = '';
+  }
+}
+
+// This function is called when user presses the orange permission button
+function requestLocationPermission() {
+  document.getElementById('t-perm-status').innerHTML = '⏳ جاري طلب الصلاحية...';
+
+  // This call will trigger Chrome's permission prompt
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      // SUCCESS — permission granted!
+      _locationGranted = true;
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      var acc = Math.round(pos.coords.accuracy);
+      console.log('[PERM] Granted! Location:', lat, lng, 'acc:', acc);
+
+      document.getElementById('t-perm-box').style.display = 'none';
+      document.getElementById('t-trkbtn').style.display = '';
+      showToast('✅ تم تفعيل صلاحية الموقع! دوس على تفعيل التتبع');
+
+      // Save this first location immediately
+      sb.from('technicians').update({
+        lat: lat, lng: lng, accuracy: acc,
+        online: true, last_seen: Date.now()
+      }).eq('id', CU.id);
+    },
+    function(err) {
+      console.log('[PERM] Error:', err.code, err.message);
+      if (err.code === 1) {
+        document.getElementById('t-perm-status').innerHTML =
+          '<span style="color:#dc2626;font-weight:700">❌ تم رفض الصلاحية!</span><br>' +
+          '<span style="font-size:0.72rem">الحل: افتح <strong>إعدادات الهاتف</strong> → <strong>التطبيقات</strong> → <strong>Chrome</strong> → <strong>الأذونات</strong> → <strong>الموقع</strong> → اختر <strong>"سماح"</strong></span><br>' +
+          '<span style="font-size:0.72rem">بعدين ارجع هنا وجرب تاني</span>';
+      } else if (err.code === 2) {
+        document.getElementById('t-perm-status').innerHTML =
+          '<span style="color:#ea580c;font-weight:700">⚠️ خدمة الموقع مقفولة!</span><br>' +
+          '<span style="font-size:0.72rem">الحل: افتح <strong>إعدادات الهاتف</strong> → <strong>الموقع</strong> → <strong>فعّله</strong></span><br>' +
+          '<span style="font-size:0.72rem">وفعّل <strong>"دقة الموقع من Google"</strong></span>';
+      } else if (err.code === 3) {
+        document.getElementById('t-perm-status').innerHTML =
+          '<span style="color:#ea580c;font-weight:700">⏳ انتهى الوقت!</span><br>' +
+          '<span style="font-size:0.72rem">جرب: 1) افتح <strong>Google Maps</strong> وشوف لو بيحدد موقعك 2) ارجع هنا وجرب تاني</span><br>' +
+          '<span style="font-size:0.72rem">لو Maps شغال بس هنا لا: روح <strong>إعدادات → التطبيقات → Chrome → الأذونات → الموقع → سماح</strong></span>';
+      }
+    },
+    { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
+  );
+}
 
 function toggleTracking() {
   isTracking ? stopTracking() : startTracking();
@@ -1126,7 +1237,6 @@ function startTracking() {
   document.getElementById('t-trkicon').textContent = '⏹️';
   document.getElementById('t-trklbl').textContent = 'إيقاف التتبع';
   document.getElementById('t-loccrd').style.display = 'block';
-  document.getElementById('t-diagbtn').style.display = 'block';
   document.getElementById('t-gps-log').style.display = 'block';
 
   document.getElementById('t-coords').textContent = '⏳ جاري تحديد الموقع...';
@@ -1137,9 +1247,10 @@ function startTracking() {
 
   function gpsLog(msg) {
     var el = document.getElementById('t-gps-log');
+    if (!el) return;
     var t = new Date().toLocaleTimeString('ar-EG');
     el.innerHTML = '<div>' + t + ' — ' + msg + '</div>' + el.innerHTML;
-    if (el.children.length > 15) el.removeChild(el.lastChild);
+    if (el.children.length > 12) el.removeChild(el.lastChild);
     console.log('[GPS] ' + msg);
   }
 
@@ -1149,174 +1260,80 @@ function startTracking() {
     document.getElementById('t-coords').textContent = lat.toFixed(6) + ', ' + lng.toFixed(6);
 
     var timeStr = new Date().toLocaleTimeString('ar-EG');
-    var label;
-    if (acc < 50) label = '🟢 GPS ممتاز';
-    else if (acc < 300) label = '🟡 WiFi جيد';
-    else if (acc < 2000) label = '🟠 شبكة مقبول';
-    else label = '⚪ تقريبي';
-
+    var label = acc < 50 ? '🟢 GPS ممتاز' : acc < 300 ? '🟡 جيد' : acc < 2000 ? '🟠 مقبول' : '⚪ تقريبي';
     document.getElementById('t-lupd').textContent = '✅ ' + timeStr + ' · ' + label + ': ' + acc + 'م (#' + _saveCount + ')';
-    gpsLog('✅ حفظ #' + _saveCount + ' من ' + source + ': ' + lat.toFixed(4) + ',' + lng.toFixed(4) + ' دقة:' + acc + 'م');
+    gpsLog('✅ حفظ #' + _saveCount + ' [' + source + '] دقة:' + acc + 'م');
 
     sb.from('technicians').update({
       lat: lat, lng: lng, accuracy: acc,
       online: true, last_seen: Date.now()
     }).eq('id', CU.id).then(function(r) {
-      if (r.error) gpsLog('❌ خطأ DB: ' + r.error.message);
+      if (r.error) gpsLog('❌ DB: ' + r.error.message);
     });
   }
-
-  // ============================================================
-  //  الاستراتيجية: نجرب 3 طرق في نفس الوقت ونحفظ أي نتيجة
-  // ============================================================
 
   gpsLog('🚀 بدء التتبع...');
 
-  // --- الطريقة 1: سريعة (WiFi/Cell) ---
-  gpsLog('📡 طريقة 1: WiFi/Cell (سريعة)...');
+  // Method 1: Fast WiFi/Cell
+  gpsLog('📡 WiFi/Cell...');
   navigator.geolocation.getCurrentPosition(
     function(pos) {
-      var lat = pos.coords.latitude, lng = pos.coords.longitude;
       var acc = Math.round(pos.coords.accuracy);
-      gpsLog('📡 طريقة 1 نجحت: دقة ' + acc + 'م');
-      saveLocation(lat, lng, acc, 'WiFi');
+      gpsLog('📡 WiFi OK: ' + acc + 'م');
+      saveLocation(pos.coords.latitude, pos.coords.longitude, acc, 'WiFi');
     },
     function(err) {
-      gpsLog('⚠️ طريقة 1 فشلت: ' + ['','PERMISSION_DENIED','POSITION_UNAVAILABLE','TIMEOUT'][err.code]);
+      gpsLog('📡 WiFi fail: code=' + err.code);
       if (err.code === 1) {
-        document.getElementById('t-lupd').textContent = '❌ صلاحية الموقع مرفوضة!';
-        gpsLog('❌ لازم تفعّل صلاحية الموقع لـ Chrome — مش بس Maps');
-        showToast('❌ فعّل صلاحية الموقع لمتصفح Chrome');
+        document.getElementById('t-lupd').textContent = '❌ صلاحية الموقع مرفوضة لـ Chrome!';
+        gpsLog('❌ PERMISSION DENIED — Chrome مش عنده صلاحية موقع!');
+        // Show permission box again
+        document.getElementById('t-perm-box').style.display = 'block';
+        stopTracking();
+        return;
       }
     },
-    { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 }
+    { enableHighAccuracy: false, maximumAge: 60000, timeout: 12000 }
   );
 
-  // --- الطريقة 2: دقيقة (GPS) ---
+  // Method 2: GPS (delayed 3s)
   setTimeout(function() {
-    gpsLog('🛰️ طريقة 2: GPS دقيق...');
+    if (!isTracking) return;
+    gpsLog('🛰️ GPS...');
     navigator.geolocation.getCurrentPosition(
       function(pos) {
-        var lat = pos.coords.latitude, lng = pos.coords.longitude;
         var acc = Math.round(pos.coords.accuracy);
-        gpsLog('🛰️ طريقة 2 نجحت: دقة ' + acc + 'م');
-        if (acc < _bestAcc) saveLocation(lat, lng, acc, 'GPS');
-        else gpsLog('🛰️ طريقة 2: دقة أسوأ من الحالي (' + _bestAcc + 'م)');
+        gpsLog('🛰️ GPS OK: ' + acc + 'م');
+        if (acc < _bestAcc) saveLocation(pos.coords.latitude, pos.coords.longitude, acc, 'GPS');
       },
-      function(err) {
-        gpsLog('⚠️ طريقة 2 فشلت: ' + ['','PERMISSION_DENIED','POSITION_UNAVAILABLE','TIMEOUT'][err.code]);
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+      function(err) { gpsLog('🛰️ GPS fail: code=' + err.code); },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 25000 }
     );
-  }, 2000);
+  }, 3000);
 
-  // --- الطريقة 3: watchPosition مستمر ---
-  gpsLog('👁️ طريقة 3: مراقبة مستمرة...');
+  // Method 3: Continuous watch
+  gpsLog('👁️ Watch...');
   _watchId = navigator.geolocation.watchPosition(
     function(pos) {
-      var lat = pos.coords.latitude, lng = pos.coords.longitude;
       var acc = Math.round(pos.coords.accuracy);
-      gpsLog('👁️ watch: ' + lat.toFixed(4) + ',' + lng.toFixed(4) + ' دقة:' + acc + 'م');
-      if (acc <= _bestAcc) saveLocation(lat, lng, acc, 'watch');
-      else gpsLog('👁️ تخطي — دقة أسوأ');
+      gpsLog('👁️ ' + acc + 'م');
+      if (acc <= _bestAcc) saveLocation(pos.coords.latitude, pos.coords.longitude, acc, 'watch');
     },
-    function(err) {
-      gpsLog('⚠️ watch error: ' + ['','PERM','UNAVAIL','TIMEOUT'][err.code] + ' ' + err.message);
-    },
+    function(err) { gpsLog('👁️ err: ' + err.code); },
     { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 }
   );
 
-  // --- الطريقة 4: كل 10 ثواني retry ---
+  // Method 4: Retry every 10s
   trackInterval = setInterval(function() {
+    if (!isTracking) return;
     sb.from('technicians').update({ online: true, last_seen: Date.now() }).eq('id', CU.id);
-
     navigator.geolocation.getCurrentPosition(function(pos) {
-      var lat = pos.coords.latitude, lng = pos.coords.longitude;
       var acc = Math.round(pos.coords.accuracy);
-      gpsLog('🔄 retry: دقة ' + acc + 'م');
-      if (acc <= _bestAcc) saveLocation(lat, lng, acc, 'retry');
-    }, function(err) {
-      gpsLog('🔄 retry fail: ' + err.code);
-    }, { enableHighAccuracy: true, maximumAge: 15000, timeout: 8000 });
+      if (acc <= _bestAcc) saveLocation(pos.coords.latitude, pos.coords.longitude, acc, 'retry');
+    }, function(){}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 8000 });
   }, 10000);
 
   showToast('📡 جاري تحديد الموقع...');
-}
-
-// ============================================================
-//  GPS DIAGNOSTICS — تشخيص شامل
-// ============================================================
-async function runGPSDiag() {
-  var log = document.getElementById('t-gps-log');
-  log.style.display = 'block';
-  log.style.maxHeight = '200px';
-
-  function dLog(msg) {
-    var t = new Date().toLocaleTimeString('ar-EG');
-    log.innerHTML = '<div style="color:#ea580c">' + t + ' 🔧 ' + msg + '</div>' + log.innerHTML;
-    console.log('[DIAG] ' + msg);
-  }
-
-  dLog('=== بدء التشخيص ===');
-
-  // 1. Check HTTPS
-  dLog('HTTPS: ' + (location.protocol === 'https:' ? '✅ نعم' : '❌ لا — مطلوب!'));
-
-  // 2. Check geolocation API
-  dLog('Geolocation API: ' + (navigator.geolocation ? '✅ موجود' : '❌ غير موجود!'));
-
-  // 3. Check permission
-  if (navigator.permissions) {
-    try {
-      var perm = await navigator.permissions.query({ name: 'geolocation' });
-      dLog('Permission: ' + (perm.state === 'granted' ? '✅ مسموح' : perm.state === 'prompt' ? '🟡 لم يُسأل بعد' : '❌ مرفوض!'));
-      if (perm.state === 'denied') {
-        dLog('💡 الحل: Chrome → ⋮ → Settings → Site Settings → Location → naguib-selim.vercel.app → Allow');
-      }
-    } catch(e) { dLog('Permission API: غير متاح'); }
-  }
-
-  // 4. Test LOW accuracy (fastest)
-  dLog('--- اختبار 1: WiFi/Cell (سريع) ---');
-  try {
-    await new Promise(function(resolve, reject) {
-      navigator.geolocation.getCurrentPosition(
-        function(pos) {
-          dLog('WiFi/Cell: ✅ ' + pos.coords.latitude.toFixed(4) + ',' + pos.coords.longitude.toFixed(4) + ' دقة:' + Math.round(pos.coords.accuracy) + 'م');
-          resolve();
-        },
-        function(err) {
-          dLog('WiFi/Cell: ❌ ' + ['','صلاحية مرفوضة','موقع غير متاح','انتهى الوقت'][err.code]);
-          if (err.code === 1) dLog('💡 افتح: إعدادات الهاتف → التطبيقات → Chrome → الأذونات → الموقع → سماح');
-          if (err.code === 2) dLog('💡 افتح: إعدادات الهاتف → الموقع → فعّله + فعّل "دقة الموقع من Google"');
-          reject(err);
-        },
-        { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
-      );
-    });
-  } catch(e) {}
-
-  // 5. Test HIGH accuracy (GPS)
-  dLog('--- اختبار 2: GPS حقيقي ---');
-  try {
-    await new Promise(function(resolve, reject) {
-      navigator.geolocation.getCurrentPosition(
-        function(pos) {
-          dLog('GPS: ✅ ' + pos.coords.latitude.toFixed(4) + ',' + pos.coords.longitude.toFixed(4) + ' دقة:' + Math.round(pos.coords.accuracy) + 'م');
-          resolve();
-        },
-        function(err) {
-          dLog('GPS: ❌ ' + ['','صلاحية مرفوضة','موقع غير متاح','انتهى الوقت'][err.code]);
-          if (err.code === 3) dLog('💡 GPS بطيء — جرب تطلع مكان مفتوح');
-          reject(err);
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-      );
-    });
-  } catch(e) {}
-
-  dLog('=== انتهى التشخيص ===');
-  showToast('🔧 شوف نتيجة التشخيص');
 }
 
 function stopTracking() {
@@ -1327,7 +1344,6 @@ function stopTracking() {
   document.getElementById('t-trkicon').textContent = '📡';
   document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
   document.getElementById('t-loccrd').style.display = 'none';
-  document.getElementById('t-diagbtn').style.display = 'none';
   sb.from('technicians').update({ online: false, lat: null, lng: null, accuracy: null }).eq('id', CU.id);
   showToast('⏹️ تم إيقاف التتبع');
 }
