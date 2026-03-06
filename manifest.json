@@ -1,15 +1,61 @@
 {
   "name": "نجيب سليم — نظام المعاينات",
   "short_name": "نجيب سليم",
+  "description": "نظام المعاينات الميداني لشركة نجيب سليم - تتبع الفنيين وإدارة المعاينات",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
-  "background_color": "#0d0500",
-  "theme_color": "#0d0500",
   "orientation": "portrait",
+  "theme_color": "#2563c4",
+  "background_color": "#f5f7ff",
   "lang": "ar",
   "dir": "rtl",
+  "scope": "/",
+  "categories": ["business", "productivity"],
   "icons": [
-    {"src":"icon.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
-    {"src":"icon.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
-  ]
+    {
+      "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "نظام المعاينات"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "تسجيل الدخول",
+      "short_name": "دخول",
+      "url": "/",
+      "icons": [
+        {
+          "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "permissions_policy": {
+    "geolocation": ["self"]
+  }
 }
