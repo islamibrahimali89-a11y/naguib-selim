@@ -26,7 +26,7 @@
       "purpose": "any"
     },
     {
-      "src": "https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo",
+      "iconUrl": "C:/Users/eslam.ibrahim/Desktop/logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
