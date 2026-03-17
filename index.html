@@ -1817,21 +1817,15 @@ async function saveAdminEdit() {
 }
 
 
-async function openPDF(url, name, btnEl) {
-  const origHtml = btnEl ? btnEl.innerHTML : '';
-  if (btnEl) {
-    btnEl.innerHTML = '<span style="font-size:1rem">⏳</span><span style="flex:1">جاري الفتح...</span><span></span>';
-    btnEl.disabled = true;
+function openPDF(url, name, btnEl) {
+  if (!url) { showToast('⚠️ لا يوجد رابط للملف'); return; }
+  // Supabase Storage URLs → تفتح مباشرة
+  // Cloudinary raw/upload القديمة → نحولها لـ image/upload
+  let finalUrl = url;
+  if (url.includes('res.cloudinary.com') && url.includes('/raw/upload/')) {
+    finalUrl = url.replace('/raw/upload/', '/image/upload/');
   }
-  try {
-    // افتح الرابط مباشرة في tab جديد — raw/upload بيكون public مع unsigned preset
-    window.open(url, '_blank');
-    showToast('✅ تم فتح الملف');
-  } catch(e) {
-    showToast('⚠️ تعذّر فتح الملف');
-  } finally {
-    if (btnEl) { setTimeout(() => { btnEl.innerHTML = origHtml; btnEl.disabled = false; }, 800); }
-  }
+  window.open(finalUrl, '_blank');
 }
 
 // ============================================
@@ -1866,35 +1860,54 @@ async function uploadAllFiles(key) {
   const barEl  = document.getElementById(key + '-progbar');
   if (progEl) progEl.style.display = 'block';
   const results = [];
+
   for (let i = 0; i < files.length; i++) {
     if (barEl) barEl.style.width = Math.round((i / files.length) * 100) + '%';
-    const fd = new FormData();
-    fd.append('file', files[i]);
-    fd.append('upload_preset', CLD_PRESET);
-    fd.append('cloud_name', CLD_CLOUD);
+    const file     = files[i];
+    const fileName = file.name || ('file_' + Date.now());
+    const fileType = file.type || '';
+    const isPdf    = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+
     try {
-      const fileName  = files[i].name || '';
-      const fileType  = files[i].type || '';
-      const isPdf     = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
-      const isImage   = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
-      // resource_type لازم يكون في الـ URL مش في FormData
-      // PDF → resource_type=raw عشان Cloudinary يحفظه كملف عادي ويديه رابط مفتوح
-      // صور → resource_type=image
-      const resourceType = isPdf ? 'raw' : 'image';
-      const cldUrl = `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${resourceType}/upload`;
-      const res  = await fetch(cldUrl, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.secure_url) {
-        const savedType = isPdf ? 'application/pdf' : (isImage ? (fileType || 'image/jpeg') : fileType);
-        results.push({ url: data.secure_url, name: fileName, type: savedType });
-        showToast(`✅ تم رفع: ${fileName.substring(0,20)}`);
+      if (isPdf) {
+        // ===== PDF → Supabase Storage (public bucket) =====
+        const filePath = `pdfs/${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { data: upData, error: upErr } = await sb.storage
+          .from('inspections-files')
+          .upload(filePath, file, { contentType: 'application/pdf', upsert: false });
+
+        if (upErr) throw new Error(upErr.message);
+
+        const { data: urlData } = sb.storage
+          .from('inspections-files')
+          .getPublicUrl(filePath);
+
+        const publicUrl = urlData?.publicUrl;
+        if (!publicUrl) throw new Error('No public URL');
+
+        results.push({ url: publicUrl, name: fileName, type: 'application/pdf' });
+        showToast(`✅ تم رفع: ${fileName.substring(0, 20)}`);
+
       } else {
-        showToast('⚠️ فشل رفع: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
+        // ===== صور → Cloudinary =====
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('upload_preset', CLD_PRESET);
+        fd.append('cloud_name', CLD_CLOUD);
+        const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.secure_url) {
+          results.push({ url: data.secure_url, name: fileName, type: fileType || 'image/jpeg' });
+          showToast(`✅ تم رفع: ${fileName.substring(0, 20)}`);
+        } else {
+          showToast('⚠️ فشل رفع الصورة: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
+        }
       }
     } catch (e) {
-      showToast('⚠️ خطأ في رفع: ' + (files[i].name || 'ملف'));
+      showToast('⚠️ خطأ في رفع: ' + fileName + ' — ' + e.message);
     }
   }
+
   if (barEl) barEl.style.width = '100%';
   setTimeout(() => {
     if (progEl) progEl.style.display = 'none';
