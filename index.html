@@ -995,14 +995,25 @@ function buildCard(r, isAdmin) {
     }
   }
 
-  // صور مرفقة — admin يقدر يعمل extract (تحميل كلها)
+  // المرفقات — تظهر للأدمن والفني معاً
   const images = files.filter(f => f.type && f.type.includes('image'));
   const pdfs   = files.filter(f => !f.type || !f.type.includes('image'));
   const fHtml = files.length
-    ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px">
-        ${pdfs.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#2563c4;text-decoration:none;background:#f0f4ff;border:1px solid rgba(37,99,196,0.2);border-radius:6px;padding:3px 8px">📄 ${(f.name||'PDF').substring(0,14)}</a>`).join('')}
-        ${images.map(f => `<a href="${f.url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;font-size:0.73rem;color:#16a34a;text-decoration:none;background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:6px;padding:3px 8px">🖼️ ${(f.name||'صورة').substring(0,14)}</a>`).join('')}
-        ${isAdmin && images.length > 0 ? `<button class="btn btn-out2" style="padding:3px 9px;font-size:0.72rem" onclick="extractImages(${r.id})">⬇️ تحميل الصور (${images.length})</button>` : ''}
+    ? `<div style="background:#f8faff;border:1px solid rgba(30,79,163,0.1);border-radius:10px;padding:9px 11px;margin-bottom:8px">
+        <div style="font-size:0.7rem;color:#64748b;font-weight:600;margin-bottom:7px">📎 المرفقات (${files.length})</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${pdfs.map(f => `<a href="${f.url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#2563c4;text-decoration:none;background:#fff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
+            <span style="font-size:1rem">📄</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'ملف PDF')}</span>
+            <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
+          </a>`).join('')}
+          ${images.map(f => `<a href="${f.url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#16a34a;text-decoration:none;background:#fff;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
+            <span style="font-size:1rem">🖼️</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'صورة')}</span>
+            <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
+          </a>`).join('')}
+        </div>
+        ${isAdmin && images.length > 0 ? `<button class="btn btn-out2" style="padding:4px 10px;font-size:0.72rem;margin-top:8px;width:100%" onclick="extractImages(${r.id})">⬇️ تحميل كل الصور (${images.length})</button>` : ''}
       </div>`
     : '';
 
@@ -1663,7 +1674,7 @@ async function saveUpdate() {
   if (error) { showToast('❌ خطأ: ' + error.message); return; }
   closeModal('mod-update');
   await loadAllData();
-  renderTechToday();
+  await renderTechToday();
   showToast('✅ تم تحديث المعاينة');
 }
 
@@ -1682,42 +1693,58 @@ function processFiles(files, key) {
 
 function renderPendingFiles(key) {
   const c = document.getElementById(key === 'a' ? 'a-upfiles' : 'um-upfiles');
-  c.innerHTML = pendingFiles[key].map((f, i) => `
-    <div class="fchip">
-      ${f.type.includes('pdf') ? '📄' : '🖼️'} ${f.name.substring(0,20)}
+  if (!c) return;
+  c.innerHTML = pendingFiles[key].map((f, i) => {
+    const isPdf = (f.type || '').includes('pdf') || f.name.toLowerCase().endsWith('.pdf');
+    return `<div class="fchip">
+      ${isPdf ? '📄' : '🖼️'} ${f.name.substring(0,20)}
       <button onclick="pendingFiles['${key}'].splice(${i},1);renderPendingFiles('${key}')">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function uploadAllFiles(key) {
   const files = pendingFiles[key];
   if (!files.length) return [];
   const progEl = document.getElementById(key + '-prog');
-  const barEl = document.getElementById(key + '-progbar');
-  progEl.style.display = 'block';
+  const barEl  = document.getElementById(key + '-progbar');
+  if (progEl) progEl.style.display = 'block';
   const results = [];
   for (let i = 0; i < files.length; i++) {
-    barEl.style.width = Math.round((i / files.length) * 100) + '%';
+    if (barEl) barEl.style.width = Math.round((i / files.length) * 100) + '%';
     const fd = new FormData();
     fd.append('file', files[i]);
     fd.append('upload_preset', CLD_PRESET);
     fd.append('cloud_name', CLD_CLOUD);
     try {
-      const isPdf = files[i].type === 'application/pdf' || files[i].name.toLowerCase().endsWith('.pdf');
+      const fileName  = files[i].name || '';
+      const fileType  = files[i].type || '';
+      const isPdf     = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
+      const isImage   = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
+      // PDF → raw/upload (يضمن رابط مفتوح بدون 401)
+      // صور وباقي → image/upload
       const cldEndpoint = isPdf
         ? `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/raw/upload`
         : `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`;
-      const res = await fetch(cldEndpoint, { method: 'POST', body: fd });
+      const res  = await fetch(cldEndpoint, { method: 'POST', body: fd });
       const data = await res.json();
       if (data.secure_url) {
-        results.push({ url: data.secure_url, name: files[i].name, type: files[i].type });
+        // نحفظ type صريح عشان يظهر صح في الكارت
+        const savedType = isPdf ? 'application/pdf' : (isImage ? (fileType || 'image/jpeg') : fileType);
+        results.push({ url: data.secure_url, name: fileName, type: savedType });
+        showToast(`✅ تم رفع: ${fileName.substring(0,20)}`);
       } else {
-        showToast('⚠️ فشل رفع: ' + files[i].name + (data.error?.message ? ' — ' + data.error.message : ''));
+        showToast('⚠️ فشل رفع: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
       }
-    } catch (e) { showToast('⚠️ خطأ في رفع: ' + files[i].name); }
+    } catch (e) {
+      showToast('⚠️ خطأ في رفع: ' + (files[i].name || 'ملف'));
+    }
   }
-  barEl.style.width = '100%';
-  setTimeout(() => { progEl.style.display = 'none'; barEl.style.width = '0%'; }, 800);
+  if (barEl) barEl.style.width = '100%';
+  setTimeout(() => {
+    if (progEl) progEl.style.display = 'none';
+    if (barEl)  barEl.style.width = '0%';
+  }, 800);
   pendingFiles[key] = [];
   renderPendingFiles(key);
   return results;
