@@ -1308,17 +1308,36 @@ async function initTech() {
 
 async function renderTechToday() {
   const today = cairoDate();
-  const { data } = await sb.from('inspections').select('*').eq('tech_user', CU.id).eq('visit_date', today).order('visit_time');
-  const ins = data || [];
+  const [insRes, usersRes] = await Promise.all([
+    sb.from('inspections').select('*').eq('tech_user', CU.id).eq('visit_date', today).order('visit_time'),
+    allUsers.length ? Promise.resolve({ data: allUsers }) : sb.from('technicians').select('*')
+  ]);
+  const ins = insRes.data || [];
+  if (!allUsers.length && usersRes.data) allUsers = usersRes.data;
+  // حدّث allInspections بالمعاينات الجديدة — ضروري لـ buildCard
+  ins.forEach(r => {
+    const idx = allInspections.findIndex(x => x.id === r.id);
+    if (idx >= 0) allInspections[idx] = r;
+    else allInspections.push(r);
+  });
   document.getElementById('t-tcount').textContent = ins.length;
   const c = document.getElementById('t-todaylist');
   c.innerHTML = ins.length ? ins.map(r => buildCard(r, false)).join('') : '<div class="empty"><div class="ei">📅</div><p>لا توجد معاينات اليوم</p></div>';
 }
 
 async function renderTechHist() {
-  const { data } = await sb.from('inspections').select('*').eq('tech_user', CU.id).order('created_at', { ascending: false });
+  const [insRes, usersRes] = await Promise.all([
+    sb.from('inspections').select('*').eq('tech_user', CU.id).order('created_at', { ascending: false }),
+    allUsers.length ? Promise.resolve({ data: allUsers }) : sb.from('technicians').select('*')
+  ]);
+  const ins = insRes.data || [];
+  if (!allUsers.length && usersRes.data) allUsers = usersRes.data;
+  ins.forEach(r => {
+    const idx = allInspections.findIndex(x => x.id === r.id);
+    if (idx >= 0) allInspections[idx] = r;
+    else allInspections.push(r);
+  });
   const c = document.getElementById('t-histlist');
-  const ins = data || [];
   c.innerHTML = ins.length ? ins.map(r => buildCard(r, false)).join('') : '<div class="empty"><div class="ei">📜</div><p>لا يوجد سجل بعد</p></div>';
 }
 
@@ -1560,7 +1579,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && is
 // ============================================
 // UPDATE MODAL (Tech) — مع تطبيق الترتيب الإلزامي
 // ============================================
-function openUpdateModal(id) {
+async function openUpdateModal(id) {
+  // تأكد إن البيانات محدّثة قبل الفتح
+  if (!allInspections.find(x => x.id === id)) {
+    const { data } = await sb.from('inspections').select('*').eq('id', id).single();
+    if (data) {
+      allInspections.push(data);
+    }
+  }
   // تحقق من الترتيب — الفني لازم يعمل update للمعاينة الأولى pending أولاً
   const today = cairoDate();
   const todayPending = allInspections
@@ -1783,8 +1809,10 @@ async function markArrived(id) {
   const now = cairoISO();
   const { error } = await sb.from('inspections').update({ arrived_at: now }).eq('id', id);
   if (error) { showToast('❌ خطأ: ' + error.message); return; }
-  await loadAllData();
-  renderTechToday();
+  // حدّث allInspections محلياً فوراً بدون انتظار loadAllData
+  const idx = allInspections.findIndex(x => x.id === id);
+  if (idx >= 0) allInspections[idx] = { ...allInspections[idx], arrived_at: now };
+  await renderTechToday();
   showToast('📍 تم تسجيل الوصول');
 }
 
