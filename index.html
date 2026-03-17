@@ -12,6 +12,7 @@
 <title>نجيب سليم — نظام المعاينات</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg0:#ffffff;--bg1:#f5f7ff;--bg2:#eef1fb;--bg3:#e4e9f7;
@@ -357,6 +358,36 @@ const CLD_PRESET = 'naguib_selim';
         <button class="btn btn-gold" id="a-savebtn" onclick="saveInspection()">💾 حفظ المعاينة</button>
       </div>
     </div>
+    <div class="panel" id="ap-bulk">
+      <div class="divider"><h2>📤 رفع معاينات من Excel</h2></div>
+      <div class="card">
+        <div class="ctitle">📋 تعليمات ملف Excel</div>
+        <div style="font-size:0.78rem;color:#475569;line-height:1.8;margin-bottom:10px">
+          الأعمدة المطلوبة في الـ Excel (الصف الأول عناوين):<br>
+          <strong style="color:#1e3a8a">الاسم · الهاتف · العنوان · تاريخ المعاينة · موقع العميل · اسم الفني · الحالة · عدد الشبابيك · حالة الدفع · ملاحظات</strong><br>
+          <span style="color:#64748b;font-size:0.73rem">أي عمود فاضي هيتجاهله النظام تلقائياً</span>
+        </div>
+        <button class="btn btn-out2" style="font-size:0.78rem;margin-bottom:12px" onclick="downloadBulkTemplate()">⬇️ تحميل نموذج Excel</button>
+        <div class="upzone" id="bulk-zone" style="padding:20px">
+          <input type="file" id="bulk-file-input" accept=".xlsx,.xls,.csv" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none!important" onchange="handleBulkFile(event)">
+          <div style="font-size:1.8rem">📊</div>
+          <p style="font-size:0.82rem;color:var(--ts);margin-top:6px"><strong style="color:var(--g5)">اسحب ملف Excel هنا</strong> أو اضغط للاختيار</p>
+          <p style="font-size:0.72rem;color:var(--td);margin-top:2px">xlsx · xls · csv</p>
+        </div>
+      </div>
+      <div id="bulk-preview-wrap" style="display:none">
+        <div class="card">
+          <div class="ctitle">👁️ معاينة البيانات</div>
+          <div id="bulk-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px"></div>
+          <div id="bulk-preview-list" style="max-height:320px;overflow-y:auto"></div>
+          <div class="brow" style="margin-top:12px">
+            <button class="btn btn-out2" onclick="resetBulk()">🔄 إلغاء</button>
+            <button class="btn btn-gold" id="bulk-savebtn" onclick="saveBulkInspections()">💾 رفع المعاينات</button>
+          </div>
+        </div>
+      </div>
+      <div id="bulk-result" style="display:none;margin-top:8px"></div>
+    </div>
     <div class="panel" id="ap-list">
       <div class="divider"><h2>كل المعاينات</h2></div>
       <div class="fbar">
@@ -436,6 +467,7 @@ const CLD_PRESET = 'naguib_selim';
   <nav class="nav-bar">
     <div class="nav-item active" onclick="aTab('dash',this)"><div class="nav-icon">📊</div>الرئيسية</div>
     <div class="nav-item" onclick="aTab('add',this)"><div class="nav-icon">➕</div>إضافة</div>
+    <div class="nav-item" onclick="aTab('bulk',this)"><div class="nav-icon">📤</div>رفع Excel</div>
     <div class="nav-item" onclick="aTab('list',this)"><div class="nav-icon">📋</div>المعاينات</div>
     <div class="nav-item" onclick="aTab('report',this)"><div class="nav-icon">📈</div>تقارير</div>
     <div class="nav-item" id="nav-users" onclick="aTab('users',this)"><div class="nav-icon">👥</div>الفنيون</div>
@@ -570,7 +602,7 @@ const sb = createClient(SB_URL, SB_KEY);
 // STATE
 // ============================================
 let CU = null;
-let watchId = null;
+let trackInterval = null;
 let isTracking = false;
 let activeUpdateId = null;
 let pendingFiles = { a: [], um: [] };
@@ -661,7 +693,7 @@ async function doLogin() {
   try { localStorage.setItem('ns_session', JSON.stringify({ id: data.id, pass: data.pass })); } catch(e) {}
 
   if (data.role === 'admin' || data.role === 'supervisor') { showScreen('sc-admin'); initAdmin(); }
-  else { showScreen('sc-tech'); initTech(); }
+  else { showScreen('sc-tech'); initTech().then(() => { if (!isTracking) startTracking(); }); }
 }
 
 function setLoading(on) {
@@ -706,7 +738,7 @@ async function tryAutoLogin() {
     // تسجيل دخول تلقائي
     CU = data;
     if (data.role === 'admin' || data.role === 'supervisor') { showScreen('sc-admin'); initAdmin(); }
-    else { showScreen('sc-tech'); initTech(); }
+    else { showScreen('sc-tech'); initTech().then(() => { if (!isTracking) startTracking(); }); }
     showToast('✅ تم تسجيل الدخول تلقائياً — ' + data.name);
   } catch(e) {
     console.log('Auto-login error:', e);
@@ -735,6 +767,7 @@ function aTab(name, el) {
   if (name === 'dash') initAdminDash();
   if (name === 'users') renderUsers();
   if (name === 'report') initReport();
+  if (name === 'bulk') resetBulk();
 }
 
 function tTab(name, el) {
@@ -1002,6 +1035,36 @@ function buildCard(r, isAdmin) {
   const inspNum = String(r.id).slice(-5);
   const numBadge = `<span style="display:inline-flex;align-items:center;background:#1e3a8a;color:#fff;border-radius:6px;padding:2px 8px;font-size:0.7rem;font-weight:900;font-family:'Tajawal',sans-serif;letter-spacing:1px">#${inspNum}</span>`;
 
+  // المسافة والوقت المتوقع للوصول — للفني فقط
+  let etaHtml = '';
+  if (!isAdmin && r.coords && r.status === 'pending') {
+    const coordStr = r.coords;
+    const isLink = coordStr.includes('http') || coordStr.includes('maps');
+    if (!isLink) {
+      const parts = coordStr.replace(/\s/g,'').split(',');
+      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
+      const tech = allUsers.find(u => u.id === r.tech_user);
+      if (!isNaN(cLat) && tech && tech.lat && tech.lng) {
+        const dist = calcDist(parseFloat(tech.lat), parseFloat(tech.lng), cLat, cLng);
+        // ETA: متوسط سرعة 30 كم/ساعة في المدينة
+        const etaMin = Math.round((dist / 30) * 60);
+        const etaLabel = etaMin < 60 ? `${etaMin} دقيقة` : `${Math.floor(etaMin/60)}س ${etaMin%60}د`;
+        etaHtml = `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.22);border-radius:10px;padding:9px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div>
+            <div style="font-size:0.68rem;color:#64748b;margin-bottom:2px">📏 المسافة المتوقعة</div>
+            <div style="font-weight:900;color:#1e4fa3;font-size:1rem;font-family:'Tajawal',sans-serif">${dist.toFixed(1)} كم</div>
+          </div>
+          <div style="width:1px;height:34px;background:rgba(37,99,196,0.18)"></div>
+          <div>
+            <div style="font-size:0.68rem;color:#64748b;margin-bottom:2px">⏱️ وقت الوصول المتوقع</div>
+            <div style="font-weight:900;color:#1e4fa3;font-size:1rem;font-family:'Tajawal',sans-serif">${etaLabel}</div>
+          </div>
+          <div style="font-size:0.65rem;color:#94a3b8;align-self:flex-end">بناءً على موقعك الحالي</div>
+        </div>`;
+      }
+    }
+  }
+
   return `<div class="icard">
     <div class="ic-top">
       <div style="display:flex;flex-direction:column;gap:4px">
@@ -1012,6 +1075,7 @@ function buildCard(r, isAdmin) {
     </div>
     <div class="ic-addr">🏠 ${r.address}</div>
     ${timeBox}
+    ${etaHtml}
     ${locHtml}
     ${winsHtml || payHtml ? `<div style="margin-bottom:7px;display:flex;gap:6px;flex-wrap:wrap">${winsHtml}${payHtml}</div>` : ''}
     ${r.notes ? `<div style="font-size:0.76rem;color:#64748b;margin-bottom:7px">📝 ${r.notes}</div>` : ''}
@@ -1221,7 +1285,7 @@ async function initTech() {
   await sb.from('technicians').update({ online: true, last_seen: Date.now(), lat: null, lng: null }).eq('id', CU.id);
   await startSession();
   await renderTechToday();
-  // Check location permission for Chrome
+  // Check location permission for Chrome — auto-start tracking after
   await checkLocationPermission();
 }
 
@@ -1455,7 +1519,7 @@ function startTracking() {
 function stopTracking() {
   isTracking = false;
   if (_watchId !== null) { navigator.geolocation.clearWatch(_watchId); _watchId = null; }
-  if(watchId){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+  clearInterval(trackInterval);
   document.getElementById('t-trkbtn').className = 'trk-btn trk-on';
   document.getElementById('t-trkicon').textContent = '📡';
   document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
@@ -1504,6 +1568,25 @@ function openUpdateModal(id) {
     document.getElementById('um-nt').disabled = true;
     document.getElementById('um-savebtn').disabled = true;
     document.getElementById('um-savebtn').textContent = '⛔ غير مسموح';
+    document.getElementById('mod-update').classList.add('open');
+    return;
+  }
+
+  // تحقق: هل الفني سجّل وصوله لهذه المعاينة؟ (فقط للمعاينات pending)
+  const rCheck = allInspections.find(x => x.id === id);
+  if (rCheck && rCheck.status === 'pending' && !rCheck.arrived_at) {
+    showToast('⚠️ لازم تضغط "تم الوصول" الأول قبل تحديث المعاينة');
+    document.getElementById('um-info').innerHTML = `
+      <div style="background:#fff7ed;border:1px solid rgba(234,88,12,0.35);border-radius:10px;padding:13px;text-align:center">
+        <div style="font-size:1.5rem;margin-bottom:6px">📍</div>
+        <div style="font-weight:700;color:#ea580c;font-size:0.9rem;margin-bottom:5px">لازم تسجّل الوصول أولاً</div>
+        <div style="font-size:0.8rem;color:#64748b;margin-bottom:10px">اضغط زرار <strong>"تم الوصول"</strong> في كارت المعاينة قبل ما تقدر تحدّث الحالة</div>
+        <button class="btn btn-green btn-full" onclick="closeModal('mod-update');markArrived(${id})">📍 تم الوصول الآن</button>
+      </div>`;
+    document.getElementById('um-st').disabled = true;
+    document.getElementById('um-nt').disabled = true;
+    document.getElementById('um-savebtn').disabled = true;
+    document.getElementById('um-savebtn').textContent = '⛔ سجّل الوصول أولاً';
     document.getElementById('mod-update').classList.add('open');
     return;
   }
@@ -1559,10 +1642,6 @@ function navToClient(coords) {
 }
 
 async function saveUpdate() {
-  if(!isTracking){
-    showToast('يجب تشغيل التتبع أولاً قبل تحديث حالة المعاينة');
-    return;
-  }
   const btn = document.getElementById('um-savebtn');
   btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...';
   const uploadedLinks = await uploadAllFiles('um');
@@ -1675,8 +1754,187 @@ function fmtTime(iso) {
 }
 
 // ============================================
-// REPORTS
+// BULK UPLOAD — Excel to Inspections
 // ============================================
+let bulkRows = [];
+
+const BULK_COL_MAP = {
+  'الاسم':['الاسم','اسم العميل','name','client_name'],
+  'الهاتف':['الهاتف','رقم الهاتف','phone','هاتف','تليفون'],
+  'العنوان':['العنوان','address','العنوان الكامل'],
+  'تاريخ المعاينة':['تاريخ المعاينة','التاريخ','visit_date','date'],
+  'موقع العميل':['موقع العميل','الموقع','coords','location','موقع','رابط الموقع'],
+  'اسم الفني':['اسم الفني','الفني','tech','tech_name'],
+  'الحالة':['الحالة','status','حالة المعاينة'],
+  'عدد الشبابيك':['عدد الشبابيك','شبابيك','windows','windows_count'],
+  'حالة الدفع':['حالة الدفع','الدفع','payment','payment_status'],
+  'ملاحظات':['ملاحظات','notes','note']
+};
+
+const STATUS_MAP = {
+  'انتظار':'pending','pending':'pending','في الانتظار':'pending',
+  'تامة':'complete','مكتملة':'complete','complete':'complete','تم':'complete',
+  'رفض':'refused','رفض العميل':'refused','refused':'refused',
+  'تأجيل':'postponed','postponed':'postponed','مؤجلة':'postponed',
+  'إلغاء':'cancelled','ملغي':'cancelled','cancelled':'cancelled'
+};
+
+const PAYMENT_MAP = {
+  'تحصيل كول سنتر':'call_center','كول سنتر':'call_center','call_center':'call_center',
+  'تحصيل فرع':'branch','فرع':'branch','branch':'branch',
+  'تحصيل معاين':'inspector','معاين':'inspector','inspector':'inspector'
+};
+
+function findColValue(row, keyGroup) {
+  for (const k of keyGroup) {
+    for (const col of Object.keys(row)) {
+      if (col.trim().toLowerCase() === k.trim().toLowerCase()) return String(row[col] || '').trim();
+    }
+  }
+  return '';
+}
+
+function handleBulkFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: 'binary', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!raw.length) { showToast('⚠️ الملف فاضي أو غير صحيح'); return; }
+      bulkRows = raw.map((row, idx) => {
+        const name    = findColValue(row, BULK_COL_MAP['الاسم']);
+        const phone   = findColValue(row, BULK_COL_MAP['الهاتف']);
+        const addr    = findColValue(row, BULK_COL_MAP['العنوان']);
+        const vdate   = findColValue(row, BULK_COL_MAP['تاريخ المعاينة']);
+        const coords  = findColValue(row, BULK_COL_MAP['موقع العميل']);
+        const techN   = findColValue(row, BULK_COL_MAP['اسم الفني']);
+        const stRaw   = findColValue(row, BULK_COL_MAP['الحالة']);
+        const wins    = findColValue(row, BULK_COL_MAP['عدد الشبابيك']);
+        const payRaw  = findColValue(row, BULK_COL_MAP['حالة الدفع']);
+        const notes   = findColValue(row, BULK_COL_MAP['ملاحظات']);
+
+        // تحويل تاريخ Date object لو SheetJS رجّعه كـ Date
+        let visitDate = vdate;
+        if (vdate && typeof vdate === 'object' && vdate instanceof Date) {
+          visitDate = vdate.toISOString().split('T')[0];
+        } else if (typeof vdate === 'string' && vdate.includes('/')) {
+          const parts = vdate.split('/');
+          if (parts.length === 3) visitDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+        }
+
+        // ربط الفني بالـ id
+        const techUser = allUsers.find(u => u.role === 'tech' && u.name.trim() === techN.trim());
+
+        const status   = STATUS_MAP[stRaw] || 'pending';
+        const payment  = PAYMENT_MAP[payRaw] || '';
+        const wCount   = parseInt(wins) || 0;
+        const valid    = !!(name && phone && addr);
+
+        return { _idx: idx+2, name, phone, addr, visitDate, coords, techN, techUser: techUser||null, status, payment, wCount, notes, valid };
+      });
+      renderBulkPreview();
+    } catch(err) {
+      showToast('❌ خطأ في قراءة الملف: ' + err.message);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+function renderBulkPreview() {
+  const valid   = bulkRows.filter(r => r.valid).length;
+  const invalid = bulkRows.filter(r => !r.valid).length;
+  document.getElementById('bulk-stats').innerHTML = `
+    <div class="sc"><div class="sn c-gold">${bulkRows.length}</div><div class="sl">إجمالي الصفوف</div></div>
+    <div class="sc"><div class="sn c-green">${valid}</div><div class="sl">✅ صالح للرفع</div></div>
+    <div class="sc"><div class="sn c-red">${invalid}</div><div class="sl">⚠️ يحتاج مراجعة</div></div>`;
+
+  const stLabels = { pending:'🕐 انتظار', complete:'✅ تامة', refused:'❌ رفض', postponed:'⏸️ تأجيل', cancelled:'🚫 إلغاء' };
+  document.getElementById('bulk-preview-list').innerHTML = bulkRows.map(r => `
+    <div style="background:${r.valid?'#f0fdf4':'#fef2f2'};border:1px solid ${r.valid?'rgba(22,163,74,0.25)':'rgba(220,38,38,0.25)'};border-radius:9px;padding:9px 11px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-weight:700;font-size:0.84rem;color:#1e293b">${r.name || '<span style=color:#dc2626>⚠️ اسم مفقود</span>'}</div>
+        <span style="font-size:0.69rem;background:${r.valid?'#dcfce7':'#fee2e2'};color:${r.valid?'#16a34a':'#dc2626'};padding:2px 7px;border-radius:5px;font-weight:700">${r.valid?'✅ صالح':'⚠️ ناقص'}</span>
+      </div>
+      <div style="font-size:0.75rem;color:#64748b">
+        📞 ${r.phone||'—'} · 🏠 ${r.addr||'—'}<br>
+        👷 ${r.techUser?r.techUser.name:(r.techN?'<span style=color:#ea580c>'+r.techN+' (غير موجود)</span>':'—')} · 📅 ${r.visitDate||'—'} · ${stLabels[r.status]||'انتظار'}
+        ${r.wCount ? ' · 🪟 '+r.wCount : ''}${r.payment ? ' · 💳 '+r.payment : ''}
+        ${r.coords ? '<br>📍 موقع: '+r.coords.substring(0,40)+'...' : ''}
+      </div>
+    </div>`).join('');
+  document.getElementById('bulk-preview-wrap').style.display = '';
+  document.getElementById('bulk-result').style.display = 'none';
+}
+
+async function saveBulkInspections() {
+  const validRows = bulkRows.filter(r => r.valid);
+  if (!validRows.length) { showToast('⚠️ لا توجد صفوف صالحة للرفع'); return; }
+  const btn = document.getElementById('bulk-savebtn');
+  btn.disabled = true; btn.textContent = '⏳ جاري الرفع...';
+  let ok = 0, fail = 0;
+  for (let i = 0; i < validRows.length; i++) {
+    btn.textContent = `⏳ ${i+1} / ${validRows.length}`;
+    const r = validRows[i];
+    const { error } = await sb.from('inspections').insert({
+      id: Date.now() + i,
+      client_name: r.name,
+      phone: r.phone,
+      address: r.addr,
+      coords: r.coords || '',
+      tech_user: r.techUser?.id || '',
+      tech_name: r.techUser?.name || r.techN || '',
+      visit_date: r.visitDate || '',
+      visit_time: '',
+      status: r.status || 'pending',
+      notes: r.notes || '',
+      windows_count: r.wCount || 0,
+      payment_status: r.payment || '',
+      files: [],
+      created_at: cairoISO()
+    });
+    if (error) fail++; else ok++;
+    await new Promise(res => setTimeout(res, 80));
+  }
+  btn.disabled = false; btn.textContent = '💾 رفع المعاينات';
+  document.getElementById('bulk-result').style.display = '';
+  document.getElementById('bulk-result').innerHTML = `
+    <div style="background:${ok>0?'#f0fdf4':'#fef2f2'};border:1px solid ${ok>0?'rgba(22,163,74,0.3)':'rgba(220,38,38,0.3)'};border-radius:11px;padding:14px;text-align:center">
+      <div style="font-size:1.4rem;margin-bottom:6px">${ok>0?'✅':'❌'}</div>
+      <div style="font-weight:700;color:${ok>0?'#16a34a':'#dc2626'};font-size:0.95rem">تم رفع ${ok} معاينة${fail>0?' · فشل '+fail:''}</div>
+      <div style="font-size:0.77rem;color:#64748b;margin-top:4px">من إجمالي ${validRows.length} صف صالح</div>
+    </div>`;
+  if (ok > 0) {
+    await loadAllData();
+    initAdminDash();
+    showToast(`✅ تم إنشاء ${ok} معاينة بنجاح`);
+  }
+  bulkRows = [];
+  document.getElementById('bulk-preview-wrap').style.display = 'none';
+  document.getElementById('bulk-file-input').value = '';
+}
+
+function resetBulk() {
+  bulkRows = [];
+  document.getElementById('bulk-preview-wrap').style.display = 'none';
+  document.getElementById('bulk-result').style.display = 'none';
+  document.getElementById('bulk-file-input').value = '';
+}
+
+function downloadBulkTemplate() {
+  const headers = [['الاسم','الهاتف','العنوان','تاريخ المعاينة','موقع العميل','اسم الفني','الحالة','عدد الشبابيك','حالة الدفع','ملاحظات']];
+  const sample  = [['أحمد محمد','01012345678','القاهرة - مدينة نصر','2025-06-01','https://maps.app.goo.gl/...','محمد الفني','انتظار','3','تحصيل معاين','مقاسات خاصة']];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([...headers, ...sample]);
+  ws['!cols'] = headers[0].map(() => ({ wch: 20 }));
+  XLSX.utils.book_append_sheet(wb, ws, 'معاينات');
+  XLSX.writeFile(wb, 'نموذج-رفع-معاينات.xlsx');
+  showToast('⬇️ تم تحميل النموذج');
+}
+
+
 function initReport() {
   const today = cairoDate();
   const firstDay = today.substring(0,7) + '-01';
@@ -1737,6 +1995,7 @@ function renderReport() {
         <div style="background:#f8faff;border-radius:6px;padding:6px"><span style="color:#94a3b8">📅 الموعد</span><br><strong style="color:#1e293b">${r.visit_date||'—'} ${r.visit_time||''}</strong></div>
         <div style="background:${r.arrived_at?'#f0fdf4':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">📍 وصل</span><br><strong style="color:${r.arrived_at?'#16a34a':'#94a3b8'}">${r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل'}</strong></div>
         <div style="background:${r.status_changed_at?'#f0f4ff':'#f8faff'};border-radius:6px;padding:6px"><span style="color:#94a3b8">🔄 تغيير الحالة</span><br><strong style="color:${r.status_changed_at?'#1e4fa3':'#94a3b8'}">${r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يُغيَّر'}</strong></div>
+        <div style="background:#f5f0ff;border:1px solid rgba(124,58,237,0.15);border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#94a3b8">🗓️ تاريخ إنشاء المعاينة</span><br><strong style="color:#6d28d9">${r.created_at ? fmtTime(r.created_at) : '—'}</strong></div>
         ${r.windows_count ? `<div style="background:#f0f4ff;border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#94a3b8">🪟 عدد الشبابيك</span><br><strong style="color:#1e4fa3;font-size:1.05rem">${r.windows_count} شباك</strong></div>` : ''}
         ${r.payment_status ? `<div style="background:#fef3c7;border-radius:6px;padding:6px;grid-column:span 2"><span style="color:#92400e">💳 حالة الدفع</span><br><strong style="color:#92400e;font-size:1.05rem">${{'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'}[r.payment_status]||r.payment_status}</strong></div>` : ''}
       </div>
@@ -1750,11 +2009,12 @@ function exportCSV() {
   const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
 
   // الأعمدة المطلوبة
-  const headers = ['تاريخ الإنشاء',
+  const headers = [
     'اسم العميل',
     'رقم التليفون',
     'العنوان',
     'حالة المعاينة',
+    'تاريخ إنشاء المعاينة',
     'تاريخ وصول الفني',
     'تاريخ تحديث حالة المعاينة',
     'الملفات المرفقة',
@@ -1762,13 +2022,13 @@ function exportCSV() {
   ];
 
   const rows = data.map(r => {
-    // الملفات: روابط مفصولة بـ |
     const filesLinks = (r.files||[]).map(f => f.url || '').filter(Boolean).join(' | ');
     return [
       r.client_name || '',
       r.phone || '',
       r.address || '',
       sm[r.status] || r.status || '',
+      r.created_at ? fmtTime(r.created_at) : '—',
       r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل',
       r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يتغير',
       filesLinks || 'لا يوجد',
@@ -1867,7 +2127,7 @@ async function exportOnlineCSV() {
     .select('*').gte('login_at', from + 'T00:00:00').lte('login_at', to + 'T23:59:59')
     .order('login_at', { ascending: false });
   if (!data?.length) { showToast('⚠️ لا توجد بيانات'); return; }
-  const headers = ['تاريخ الإنشاء','الفني','وقت الدخول','وقت الخروج','المدة (دقيقة)','المدة (ساعة:دقيقة)'];
+  const headers = ['الفني','وقت الدخول','وقت الخروج','المدة (دقيقة)','المدة (ساعة:دقيقة)'];
   const rows = data.map(s => [
     s.tech_name||'', s.login_at ? fmtTime(s.login_at) : '',
     s.logout_at ? fmtTime(s.logout_at) : 'متصل الآن',
