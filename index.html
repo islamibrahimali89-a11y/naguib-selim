@@ -696,12 +696,12 @@ function cairoTime() {
 }
 
 // ============================================
-// AUTO-CLEANUP: مسح الملفات القديمة (أكتر من 60 يوم)
+// AUTO-CLEANUP: مسح الملفات القديمة (أكتر من 2 يوم)
 // ============================================
 async function cleanupOldFiles() {
   try {
     var cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 60);
+    cutoff.setDate(cutoff.getDate() - 2);
     var cutoffStr = cutoff.toISOString().split('T')[0];
 
     var { data, error } = await sb.from('inspections')
@@ -714,12 +714,25 @@ async function cleanupOldFiles() {
     var cleaned = 0;
     for (var i = 0; i < data.length; i++) {
       var r = data[i];
-      if (r.files && r.files.length > 0) {
-        await sb.from('inspections').update({ files: [] }).eq('id', r.id);
-        cleaned++;
+      if (!r.files || !r.files.length) continue;
+
+      // مسح ملفات Supabase Storage (PDF)
+      var storagePaths = [];
+      r.files.forEach(function(f) {
+        if (f.url && f.url.includes('/storage/v1/object/public/inspections-files/')) {
+          var path = f.url.split('/inspections-files/')[1];
+          if (path) storagePaths.push(path);
+        }
+      });
+      if (storagePaths.length > 0) {
+        await sb.storage.from('inspections-files').remove(storagePaths);
       }
+
+      // مسح الـ files array من الـ DB
+      await sb.from('inspections').update({ files: [] }).eq('id', r.id);
+      cleaned++;
     }
-    if (cleaned > 0) console.log('[CLEANUP] Cleared files from ' + cleaned + ' inspections older than 60 days');
+    if (cleaned > 0) console.log('[CLEANUP] Cleared files from ' + cleaned + ' inspections older than 2 days');
   } catch(e) { console.log('[CLEANUP] Error:', e); }
 }
 
@@ -850,7 +863,7 @@ async function initAdmin() {
   populateTechSelect();
   setInterval(async () => { await loadAllData(); initAdminDash(); checkOffline(); }, 15000);
 
-  // تنظيف الملفات القديمة (أكتر من 60 يوم) — مرة واحدة عند الدخول
+  // تنظيف الملفات القديمة (أكتر من 2 يوم) — مرة واحدة عند الدخول
   cleanupOldFiles();
 }
 
