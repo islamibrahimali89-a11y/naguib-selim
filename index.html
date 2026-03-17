@@ -1002,11 +1002,14 @@ function buildCard(r, isAdmin) {
     ? `<div style="background:#f8faff;border:1px solid rgba(30,79,163,0.1);border-radius:10px;padding:9px 11px;margin-bottom:8px">
         <div style="font-size:0.7rem;color:#64748b;font-weight:600;margin-bottom:7px">📎 المرفقات (${files.length})</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${pdfs.map(f => `<a href="${f.url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#2563c4;text-decoration:none;background:#fff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
-            <span style="font-size:1rem">📄</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'ملف PDF')}</span>
-            <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
-          </a>`).join('')}
+          ${pdfs.map(f => {
+            const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(f.url)}&embedded=false`;
+            return `<a href="${viewerUrl}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#2563c4;text-decoration:none;background:#fff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
+              <span style="font-size:1rem">📄</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'ملف PDF')}</span>
+              <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
+            </a>`;
+          }).join('')}
           ${images.map(f => `<a href="${f.url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#16a34a;text-decoration:none;background:#fff;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
             <span style="font-size:1rem">🖼️</span>
             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'صورة')}</span>
