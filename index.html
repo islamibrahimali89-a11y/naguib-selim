@@ -1750,17 +1750,18 @@ async function uploadAllFiles(key) {
       const fileType  = files[i].type || '';
       const isPdf     = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
       const isImage   = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
-      // PDF → raw/upload (يضمن رابط مفتوح بدون 401)
-      // صور وباقي → image/upload
-      const cldEndpoint = isPdf
-        ? `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/raw/upload`
-        : `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`;
-      const res  = await fetch(cldEndpoint, { method: 'POST', body: fd });
+      // كل الملفات بـ image/upload + resource_type=auto — بيشتغل مع PDF وصور بدون 401
+      fd.append('resource_type', 'auto');
+      const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: 'POST', body: fd });
       const data = await res.json();
       if (data.secure_url) {
-        // نحفظ type صريح عشان يظهر صح في الكارت
         const savedType = isPdf ? 'application/pdf' : (isImage ? (fileType || 'image/jpeg') : fileType);
-        results.push({ url: data.secure_url, name: fileName, type: savedType });
+        // للـ PDF: نضيف fl_attachment في الرابط عشان يتفتح مباشرة
+        let finalUrl = data.secure_url;
+        if (isPdf) {
+          finalUrl = finalUrl.replace('/image/upload/', '/image/upload/fl_attachment/');
+        }
+        results.push({ url: finalUrl, name: fileName, type: savedType });
         showToast(`✅ تم رفع: ${fileName.substring(0,20)}`);
       } else {
         showToast('⚠️ فشل رفع: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
@@ -2055,7 +2056,13 @@ function renderReport() {
   document.getElementById('rp-list').innerHTML = data.length ? data.map(r => `
     <div style="background:#fff;border:1px solid rgba(30,79,163,0.1);border-radius:11px;padding:13px;margin-bottom:8px;box-shadow:0 1px 5px rgba(30,79,163,0.06)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:7px">
-        <div><div style="font-weight:700;color:#1e293b;font-size:0.93rem">${r.client_name}</div><div style="font-size:0.76rem;color:#2563c4">📞 ${r.phone}</div></div>
+        <div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="background:#1e3a8a;color:#fff;border-radius:5px;padding:2px 8px;font-size:0.69rem;font-weight:900;font-family:'Tajawal',sans-serif">#${String(r.id).slice(-5)}</span>
+            <div style="font-weight:700;color:#1e293b;font-size:0.93rem">${r.client_name}</div>
+          </div>
+          <div style="font-size:0.76rem;color:#2563c4">📞 ${r.phone}</div>
+        </div>
         <span class="stbadge ${stBadge[r.status]||'st-pending'}">${sm[r.status]||'انتظار'}</span>
       </div>
       <div style="font-size:0.76rem;color:#64748b;margin-bottom:6px">🏠 ${r.address}</div>
@@ -2079,9 +2086,11 @@ function exportCSV() {
   const pmLabels = {'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'};
 
   const headers = [
+    'رقم المعاينة',
     'اسم العميل',
     'رقم التليفون',
     'العنوان',
+    'اسم المعاين',
     'حالة المعاينة',
     'تاريخ إنشاء المعاينة',
     'تاريخ وصول الفني',
@@ -2094,9 +2103,11 @@ function exportCSV() {
   const rows = [];
   data.forEach(r => {
     const baseRow = [
+      '#' + String(r.id).slice(-5),
       r.client_name || '',
       r.phone || '',
       r.address || '',
+      r.tech_name || '—',
       sm[r.status] || r.status || '',
       r.created_at ? fmtTime(r.created_at) : '—',
       r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل',
