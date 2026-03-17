@@ -1817,10 +1817,29 @@ async function saveAdminEdit() {
 }
 
 
+// ============================================
+// PDF UPLOAD — Supabase DB (base64) + فتح مباشر
+// ============================================
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('فشل قراءة الملف'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToBlob(base64, mimeType) {
+  const bytes = atob(base64);
+  const arr   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mimeType });
+}
+
 function openPDF(url, name, btnEl) {
-  if (!url) { showToast('⚠️ لا يوجد رابط للملف'); return; }
-  // Supabase Storage URLs → تفتح مباشرة
-  // Cloudinary raw/upload القديمة → نحولها لـ image/upload
+  if (!url) { showToast('⚠️ لا يوجد رابط'); return; }
+  // Supabase Storage URL → فتح مباشرة
+  // Cloudinary raw/upload قديمة → حوّل لـ image/upload
   let finalUrl = url;
   if (url.includes('res.cloudinary.com') && url.includes('/raw/upload/')) {
     finalUrl = url.replace('/raw/upload/', '/image/upload/');
@@ -1870,35 +1889,29 @@ async function uploadAllFiles(key) {
 
     try {
       if (isPdf) {
-        // ===== PDF → Supabase Storage (public bucket) =====
-        const filePath = `pdfs/${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const { data: upData, error: upErr } = await sb.storage
+        // PDF → Supabase Storage bucket: inspections-files (public)
+        const safeName  = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath  = 'pdfs/' + Date.now() + '_' + safeName;
+        const { error: upErr } = await sb.storage
           .from('inspections-files')
-          .upload(filePath, file, { contentType: 'application/pdf', upsert: false });
-
+          .upload(filePath, file, { contentType: 'application/pdf', upsert: true });
         if (upErr) throw new Error(upErr.message);
-
-        const { data: urlData } = sb.storage
-          .from('inspections-files')
-          .getPublicUrl(filePath);
-
+        const { data: urlData } = sb.storage.from('inspections-files').getPublicUrl(filePath);
         const publicUrl = urlData?.publicUrl;
-        if (!publicUrl) throw new Error('No public URL');
-
+        if (!publicUrl) throw new Error('لا يوجد رابط عام');
         results.push({ url: publicUrl, name: fileName, type: 'application/pdf' });
-        showToast(`✅ تم رفع: ${fileName.substring(0, 20)}`);
-
+        showToast('✅ تم رفع: ' + fileName.substring(0,20));
       } else {
-        // ===== صور → Cloudinary =====
+        // صور → Cloudinary
         const fd = new FormData();
         fd.append('file', file);
         fd.append('upload_preset', CLD_PRESET);
         fd.append('cloud_name', CLD_CLOUD);
-        const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: 'POST', body: fd });
+        const res  = await fetch('https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/image/upload', { method: 'POST', body: fd });
         const data = await res.json();
         if (data.secure_url) {
           results.push({ url: data.secure_url, name: fileName, type: fileType || 'image/jpeg' });
-          showToast(`✅ تم رفع: ${fileName.substring(0, 20)}`);
+          showToast('✅ تم رفع: ' + fileName.substring(0,20));
         } else {
           showToast('⚠️ فشل رفع الصورة: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
         }
