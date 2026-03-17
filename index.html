@@ -571,6 +571,53 @@ const CLD_PRESET = 'naguib_selim';
   </div>
 </div>
 
+<!-- ADMIN EDIT MODAL -->
+<div class="modal-ov" id="mod-admin-edit">
+  <div class="modal">
+    <div class="modal-drag"></div>
+    <div class="modal-hd"><div class="modal-title">✏️ تعديل المعاينة</div><button class="modal-close" onclick="closeModal('mod-admin-edit')">✕</button></div>
+    <div class="modal-body">
+      <div class="frow">
+        <div class="fg"><div class="fl">الاسم</div><input class="fi" id="ae-cn" placeholder="اسم العميل"></div>
+        <div class="fg"><div class="fl">الهاتف</div><input class="fi" id="ae-cp" type="tel" placeholder="01XXXXXXXXX"></div>
+      </div>
+      <div class="fg"><div class="fl">العنوان</div><input class="fi" id="ae-ca" placeholder="العنوان"></div>
+      <div class="frow">
+        <div class="fg"><div class="fl">تاريخ المعاينة</div><input class="fi" id="ae-vd" type="date"></div>
+        <div class="fg"><div class="fl">الوقت</div><input class="fi" id="ae-vt" type="time"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><div class="fl">الفني</div>
+          <select class="fs" id="ae-tech"><option value="">-- اختر فني --</option></select>
+        </div>
+        <div class="fg"><div class="fl">الحالة</div>
+          <select class="fs" id="ae-st">
+            <option value="pending">🕐 انتظار</option>
+            <option value="complete">✅ تامة</option>
+            <option value="refused">❌ رفض</option>
+            <option value="postponed">⏸️ تأجيل</option>
+            <option value="cancelled">🚫 إلغاء</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg"><div class="fl">🪟 عدد الشبابيك</div><input class="fi" type="number" id="ae-wins" min="0" placeholder="0"></div>
+      <div class="fg"><div class="fl">💳 حالة الدفع</div>
+        <select class="fs" id="ae-pay">
+          <option value="">-- اختر --</option>
+          <option value="call_center">تحصيل كول سنتر</option>
+          <option value="branch">تحصيل فرع</option>
+          <option value="inspector">تحصيل معاين</option>
+        </select>
+      </div>
+      <div class="fg"><div class="fl">📝 ملاحظات</div><textarea class="fta" id="ae-nt" placeholder="ملاحظات..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-out2" onclick="closeModal('mod-admin-edit')">إلغاء</button>
+      <button class="btn btn-gold" id="ae-savebtn" onclick="saveAdminEdit()">💾 حفظ التعديل</button>
+    </div>
+  </div>
+</div>
+
 <!-- MAP MODAL -->
 <div class="modal-ov" id="mod-map">
   <div class="modal">
@@ -1026,7 +1073,6 @@ function buildCard(r, isAdmin) {
     : (r.arrived_at ? `<span style="font-size:0.72rem;color:#16a34a">📍 وصل: ${fmtTime(r.arrived_at)}</span>` : '');
   const updBtn = !isAdmin
     ? (() => {
-        // تحقق من الترتيب الإلزامي — الزرار يتغير بناء على الترتيب
         const today = cairoDate();
         const todayPending = allInspections
           .filter(x => x.tech_user === r.tech_user && x.visit_date === today && x.status === 'pending')
@@ -1039,7 +1085,7 @@ function buildCard(r, isAdmin) {
           ? `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openUpdateModal(${r.id})">✏️ تحديث</button>`
           : `<button class="btn btn-out2" style="padding:5px 11px;font-size:0.78rem;opacity:0.5;cursor:not-allowed" onclick="openUpdateModal(${r.id})">🔒 انتظار</button>`;
       })()
-    : '';
+    : `<button class="btn btn-gold" style="padding:5px 11px;font-size:0.78rem" onclick="openAdminEdit(${r.id})">✏️ تعديل</button>`;
   const winsHtml = r.windows_count ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:6px;padding:3px 9px;font-size:0.75rem;font-weight:700;color:#1e4fa3">🪟 ${r.windows_count} شباك</span>` : '';
 
   const payLabels = { call_center:'تحصيل كول سنتر', branch:'تحصيل فرع', inspector:'تحصيل معاين' };
@@ -1705,38 +1751,86 @@ async function saveUpdate() {
 }
 
 // ============================================
-// PDF OPENER — يفتح PDF على أي جهاز بدون 401
+// ADMIN EDIT MODAL
 // ============================================
+let activeAdminEditId = null;
+
+function openAdminEdit(id) {
+  const r = allInspections.find(x => x.id === id);
+  if (!r) { showToast('⚠️ تعذّر تحميل بيانات المعاينة'); return; }
+  activeAdminEditId = id;
+  document.getElementById('ae-cn').value  = r.client_name || '';
+  document.getElementById('ae-cp').value  = r.phone || '';
+  document.getElementById('ae-ca').value  = r.address || '';
+  document.getElementById('ae-vd').value  = r.visit_date || '';
+  document.getElementById('ae-vt').value  = r.visit_time || '';
+  document.getElementById('ae-st').value  = r.status || 'pending';
+  document.getElementById('ae-wins').value = r.windows_count || '';
+  document.getElementById('ae-pay').value = r.payment_status || '';
+  document.getElementById('ae-nt').value  = r.notes || '';
+  // ملء قائمة الفنيين
+  const sel = document.getElementById('ae-tech');
+  sel.innerHTML = '<option value="">-- اختر فني --</option>' +
+    allUsers.filter(u => u.role === 'tech').map(u =>
+      `<option value="${u.id}" ${u.id === r.tech_user ? 'selected' : ''}>${u.name}</option>`
+    ).join('');
+  document.getElementById('ae-savebtn').disabled = false;
+  document.getElementById('ae-savebtn').textContent = '💾 حفظ التعديل';
+  document.getElementById('mod-admin-edit').classList.add('open');
+}
+
+async function saveAdminEdit() {
+  const btn = document.getElementById('ae-savebtn');
+  btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...';
+  const techId   = document.getElementById('ae-tech').value;
+  const techUser = allUsers.find(u => u.id === techId);
+  const newStatus = document.getElementById('ae-st').value;
+  const r = allInspections.find(x => x.id === activeAdminEditId);
+  const statusChanged = r?.status !== newStatus;
+  const updateData = {
+    client_name:    document.getElementById('ae-cn').value.trim(),
+    phone:          document.getElementById('ae-cp').value.trim(),
+    address:        document.getElementById('ae-ca').value.trim(),
+    visit_date:     document.getElementById('ae-vd').value,
+    visit_time:     document.getElementById('ae-vt').value,
+    tech_user:      techId,
+    tech_name:      techUser?.name || r?.tech_name || '',
+    status:         newStatus,
+    windows_count:  parseInt(document.getElementById('ae-wins').value) || 0,
+    payment_status: document.getElementById('ae-pay').value,
+    notes:          document.getElementById('ae-nt').value.trim(),
+  };
+  if (statusChanged) updateData.status_changed_at = cairoISO();
+  if (!updateData.client_name || !updateData.phone || !updateData.address) {
+    showToast('⚠️ الاسم والهاتف والعنوان مطلوبون');
+    btn.disabled = false; btn.textContent = '💾 حفظ التعديل';
+    return;
+  }
+  const { error } = await sb.from('inspections').update(updateData).eq('id', activeAdminEditId);
+  btn.disabled = false; btn.textContent = '💾 حفظ التعديل';
+  if (error) { showToast('❌ خطأ: ' + error.message); return; }
+  closeModal('mod-admin-edit');
+  await loadAllData();
+  renderAdminList();
+  initAdminDash();
+  showToast('✅ تم تعديل المعاينة بنجاح');
+}
+
+
 async function openPDF(url, name, btnEl) {
   const origHtml = btnEl ? btnEl.innerHTML : '';
   if (btnEl) {
-    btnEl.innerHTML = '<span style="font-size:1rem">⏳</span><span style="flex:1">جاري التحميل...</span><span></span>';
+    btnEl.innerHTML = '<span style="font-size:1rem">⏳</span><span style="flex:1">جاري الفتح...</span><span></span>';
     btnEl.disabled = true;
   }
   try {
-    // حوّل روابط raw/upload القديمة → image/upload
-    const fetchUrl = url.replace('/raw/upload/', '/image/upload/');
-    let res = await fetch(fetchUrl);
-    if (!res.ok) res = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.target = '_blank';
-    a.download = name || 'ملف.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+    // افتح الرابط مباشرة في tab جديد — raw/upload بيكون public مع unsigned preset
+    window.open(url, '_blank');
     showToast('✅ تم فتح الملف');
   } catch(e) {
-    // fallback: افتح الرابط المحوّل مباشرة
-    const fallback = url.replace('/raw/upload/', '/image/upload/');
-    window.open(fallback, '_blank');
-    showToast('⚠️ جاري الفتح في المتصفح');
+    showToast('⚠️ تعذّر فتح الملف');
   } finally {
-    if (btnEl) { btnEl.innerHTML = origHtml; btnEl.disabled = false; }
+    if (btnEl) { setTimeout(() => { btnEl.innerHTML = origHtml; btnEl.disabled = false; }, 800); }
   }
 }
 
@@ -1783,18 +1877,16 @@ async function uploadAllFiles(key) {
       const fileType  = files[i].type || '';
       const isPdf     = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
       const isImage   = fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName);
-      // كل الملفات بـ image/upload + resource_type=auto — بيشتغل مع PDF وصور بدون 401
-      fd.append('resource_type', 'auto');
-      const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`, { method: 'POST', body: fd });
+      // resource_type لازم يكون في الـ URL مش في FormData
+      // PDF → resource_type=raw عشان Cloudinary يحفظه كملف عادي ويديه رابط مفتوح
+      // صور → resource_type=image
+      const resourceType = isPdf ? 'raw' : 'image';
+      const cldUrl = `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/${resourceType}/upload`;
+      const res  = await fetch(cldUrl, { method: 'POST', body: fd });
       const data = await res.json();
       if (data.secure_url) {
         const savedType = isPdf ? 'application/pdf' : (isImage ? (fileType || 'image/jpeg') : fileType);
-        // للـ PDF: نضيف fl_attachment في الرابط عشان يتفتح مباشرة
-        let finalUrl = data.secure_url;
-        if (isPdf) {
-          finalUrl = finalUrl.replace('/image/upload/', '/image/upload/fl_attachment/');
-        }
-        results.push({ url: finalUrl, name: fileName, type: savedType });
+        results.push({ url: data.secure_url, name: fileName, type: savedType });
         showToast(`✅ تم رفع: ${fileName.substring(0,20)}`);
       } else {
         showToast('⚠️ فشل رفع: ' + fileName + (data.error?.message ? ' — ' + data.error.message : ''));
