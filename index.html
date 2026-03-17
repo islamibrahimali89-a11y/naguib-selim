@@ -1002,14 +1002,11 @@ function buildCard(r, isAdmin) {
     ? `<div style="background:#f8faff;border:1px solid rgba(30,79,163,0.1);border-radius:10px;padding:9px 11px;margin-bottom:8px">
         <div style="font-size:0.7rem;color:#64748b;font-weight:600;margin-bottom:7px">📎 المرفقات (${files.length})</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${pdfs.map(f => {
-            const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(f.url)}&embedded=false`;
-            return `<a href="${viewerUrl}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#2563c4;text-decoration:none;background:#fff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
-              <span style="font-size:1rem">📄</span>
-              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'ملف PDF')}</span>
-              <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
-            </a>`;
-          }).join('')}
+          ${pdfs.map((f,fi) => `<button onclick="openPDF('${f.url.replace(/'/g,"\\'")}','${(f.name||'ملف.pdf').replace(/'/g,"\\'")}',this)" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#2563c4;background:#fff;border:1px solid rgba(37,99,196,0.2);border-radius:8px;padding:7px 10px;font-weight:600;width:100%;cursor:pointer;font-family:'Cairo',sans-serif;text-align:right">
+            <span style="font-size:1rem">📄</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'ملف PDF')}</span>
+            <span style="font-size:0.68rem;color:#94a3b8;flex-shrink:0">فتح ↗</span>
+          </button>`).join('')}
           ${images.map(f => `<a href="${f.url}" target="_blank" style="display:flex;align-items:center;gap:7px;font-size:0.78rem;color:#16a34a;text-decoration:none;background:#fff;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:7px 10px;font-weight:600">
             <span style="font-size:1rem">🖼️</span>
             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(f.name||'صورة')}</span>
@@ -1708,6 +1705,42 @@ async function saveUpdate() {
 }
 
 // ============================================
+// PDF OPENER — يفتح PDF على أي جهاز بدون 401
+// ============================================
+async function openPDF(url, name, btnEl) {
+  const origHtml = btnEl ? btnEl.innerHTML : '';
+  if (btnEl) {
+    btnEl.innerHTML = '<span style="font-size:1rem">⏳</span><span style="flex:1">جاري التحميل...</span><span></span>';
+    btnEl.disabled = true;
+  }
+  try {
+    // حوّل روابط raw/upload القديمة → image/upload
+    const fetchUrl = url.replace('/raw/upload/', '/image/upload/');
+    let res = await fetch(fetchUrl);
+    if (!res.ok) res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.target = '_blank';
+    a.download = name || 'ملف.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+    showToast('✅ تم فتح الملف');
+  } catch(e) {
+    // fallback: افتح الرابط المحوّل مباشرة
+    const fallback = url.replace('/raw/upload/', '/image/upload/');
+    window.open(fallback, '_blank');
+    showToast('⚠️ جاري الفتح في المتصفح');
+  } finally {
+    if (btnEl) { btnEl.innerHTML = origHtml; btnEl.disabled = false; }
+  }
+}
+
+// ============================================
 // CLOUDINARY UPLOAD
 // ============================================
 function handleFiles(e, key) { processFiles(e.target.files, key); }
@@ -2116,12 +2149,12 @@ function exportCSV() {
     ];
     const files = (r.files || []).filter(f => f.url);
     if (!files.length) {
-      // معاينة بدون ملفات — صف واحد بدون رابط
       rows.push([...baseRow, 'لا يوجد', '']);
     } else {
-      // كل ملف في صف مستقل مع نفس بيانات المعاينة
       files.forEach(f => {
-        rows.push([...baseRow, f.name || 'ملف', f.url]);
+        // حوّل روابط raw/upload القديمة → image/upload
+        const cleanUrl = (f.url || '').replace('/raw/upload/', '/image/upload/');
+        rows.push([...baseRow, f.name || 'ملف', cleanUrl]);
       });
     }
   });
