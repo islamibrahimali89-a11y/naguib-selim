@@ -1700,9 +1700,17 @@ async function uploadAllFiles(key) {
     fd.append('upload_preset', CLD_PRESET);
     fd.append('cloud_name', CLD_CLOUD);
     try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLD_CLOUD}/auto/upload`, { method: 'POST', body: fd });
+      const isPdf = files[i].type === 'application/pdf' || files[i].name.toLowerCase().endsWith('.pdf');
+      const cldEndpoint = isPdf
+        ? `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/raw/upload`
+        : `https://api.cloudinary.com/v1_1/${CLD_CLOUD}/image/upload`;
+      const res = await fetch(cldEndpoint, { method: 'POST', body: fd });
       const data = await res.json();
-      if (data.secure_url) results.push({ url: data.secure_url, name: files[i].name, type: files[i].type });
+      if (data.secure_url) {
+        results.push({ url: data.secure_url, name: files[i].name, type: files[i].type });
+      } else {
+        showToast('⚠️ فشل رفع: ' + files[i].name + (data.error?.message ? ' — ' + data.error.message : ''));
+      }
     } catch (e) { showToast('⚠️ خطأ في رفع: ' + files[i].name); }
   }
   barEl.style.width = '100%';
@@ -2007,8 +2015,8 @@ function exportCSV() {
   const data = getReportData();
   if (!data.length) { showToast('⚠️ لا توجد بيانات للتصدير'); return; }
   const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
+  const pmLabels = {'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'};
 
-  // الأعمدة المطلوبة
   const headers = [
     'اسم العميل',
     'رقم التليفون',
@@ -2017,13 +2025,14 @@ function exportCSV() {
     'تاريخ إنشاء المعاينة',
     'تاريخ وصول الفني',
     'تاريخ تحديث حالة المعاينة',
-    'الملفات المرفقة',
-    'حالة الدفع'
+    'حالة الدفع',
+    'اسم الملف',
+    'رابط الملف'
   ];
 
-  const rows = data.map(r => {
-    const filesLinks = (r.files||[]).map(f => f.url || '').filter(Boolean).join(' | ');
-    return [
+  const rows = [];
+  data.forEach(r => {
+    const baseRow = [
       r.client_name || '',
       r.phone || '',
       r.address || '',
@@ -2031,9 +2040,18 @@ function exportCSV() {
       r.created_at ? fmtTime(r.created_at) : '—',
       r.arrived_at ? fmtTime(r.arrived_at) : 'لم يُسجَّل',
       r.status_changed_at ? fmtTime(r.status_changed_at) : 'لم يتغير',
-      filesLinks || 'لا يوجد',
-      {'call_center':'تحصيل كول سنتر','branch':'تحصيل فرع','inspector':'تحصيل معاين'}[r.payment_status] || ''
+      pmLabels[r.payment_status] || ''
     ];
+    const files = (r.files || []).filter(f => f.url);
+    if (!files.length) {
+      // معاينة بدون ملفات — صف واحد بدون رابط
+      rows.push([...baseRow, 'لا يوجد', '']);
+    } else {
+      // كل ملف في صف مستقل مع نفس بيانات المعاينة
+      files.forEach(f => {
+        rows.push([...baseRow, f.name || 'ملف', f.url]);
+      });
+    }
   });
 
   const csvContent = '\uFEFF' + [headers, ...rows]
