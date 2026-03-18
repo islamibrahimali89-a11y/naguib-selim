@@ -367,7 +367,7 @@ const CLD_PRESET = 'naguib_selim';
         <div class="ctitle">📋 تعليمات ملف Excel</div>
         <div style="font-size:0.78rem;color:#475569;line-height:1.8;margin-bottom:10px">
           الأعمدة المطلوبة في الـ Excel (الصف الأول عناوين):<br>
-          <strong style="color:#1e3a8a">الاسم · الهاتف · العنوان · تاريخ المعاينة · موقع العميل · اسم الفني · الحالة · عدد الشبابيك · حالة الدفع · ملاحظات</strong><br>
+          <strong style="color:#1e3a8a">الاسم · الهاتف · العنوان · تاريخ المعاينة · وقت المعاينة · موقع العميل · اسم الفني · الحالة · عدد الشبابيك · حالة الدفع · ملاحظات</strong><br>
           <span style="color:#64748b;font-size:0.73rem">أي عمود فاضي هيتجاهله النظام تلقائياً</span>
         </div>
         <button class="btn btn-out2" style="font-size:0.78rem;margin-bottom:12px" onclick="downloadBulkTemplate()">⬇️ تحميل نموذج Excel</button>
@@ -582,6 +582,11 @@ const CLD_PRESET = 'naguib_selim';
         <div class="fg"><div class="fl">الهاتف</div><input class="fi" id="ae-cp" type="tel" placeholder="01XXXXXXXXX"></div>
       </div>
       <div class="fg"><div class="fl">العنوان</div><input class="fi" id="ae-ca" placeholder="العنوان"></div>
+      <div class="fg">
+        <div class="fl">📍 موقع العميل (رابط Google Maps أو إحداثيات)</div>
+        <input class="fi" id="ae-crd" placeholder="الصق رابط Google Maps أو 30.xxxx, 31.xxxx" oninput="aeParseCoords(this.value)" onpaste="setTimeout(()=>aeParseCoords(this.value),50)">
+        <div id="ae-crd-msg" style="font-size:0.74rem;margin-top:4px;display:none"></div>
+      </div>
       <div class="frow">
         <div class="fg"><div class="fl">تاريخ المعاينة</div><input class="fi" id="ae-vd" type="date"></div>
         <div class="fg"><div class="fl">الوقت</div><input class="fi" id="ae-vt" type="time"></div>
@@ -986,10 +991,33 @@ async function showTechMap(techId) {
   var accBadge = accNum ? (accNum < 50 ? '🟢 GPS (' + accNum + 'م)' : accNum < 300 ? '🟡 WiFi (' + accNum + 'م)' : accNum < 2000 ? '🟠 شبكة (' + accNum + 'م)' : '⚪ تقريبي (' + (accNum/1000).toFixed(1) + 'كم)') : '';
   var info = '<div style="background:#f0fdf4;border:1px solid rgba(22,163,74,0.2);border-radius:8px;padding:10px;grid-column:span 2"><div style="font-size:0.72rem;color:#64748b;margin-bottom:3px">📡 موقع الفني (GPS)</div><div style="font-weight:700;color:#1e293b;font-size:0.9rem">' + tech.name + '</div><div style="font-size:0.73rem;color:#16a34a;margin-top:2px">⏰ ' + lastUpd + '</div>' + (accBadge ? '<div style="font-size:0.73rem;margin-top:3px">دقة: ' + accBadge + '</div>' : '') + '<div style="font-size:0.71rem;color:#64748b;font-family:Tajawal,sans-serif;margin-top:1px">' + tLat.toFixed(6) + ', ' + tLng.toFixed(6) + '</div><a href="https://www.google.com/maps?q=' + tLat + ',' + tLng + '" target="_blank" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;background:#16a34a;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">📍 فتح موقع الفني</a></div>';
   pList.slice(0,3).forEach(function(r,i) {
-    var cs2 = r.coords||''; var isLk = cs2.indexOf('http')>=0||cs2.indexOf('maps')>=0; var dT='—',cU=null;
-    if (!isLk && cs2) { var pp=cs2.replace(/\s/g,'').split(','); var pL=parseFloat(pp[0]),pG=parseFloat(pp[1]); if(!isNaN(pL)&&!isNaN(pG)){dT=calcDist(tLat,tLng,pL,pG).toFixed(1)+' كم';cU='https://www.google.com/maps/dir/'+tLat+','+tLng+'/'+pL+','+pG;}}
-    else if(isLk){cU='https://www.google.com/maps/dir/'+tLat+','+tLng+'/'+encodeURIComponent(cs2);dT='رابط';}
-    info+='<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:0.72rem;color:#64748b">'+(i===0?'العميل التالي':'العميل '+(i+1))+'</div><span style="background:'+(i===0?'#2563c4':'#94a3b8')+';color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 '+dT+'</span></div><div style="font-weight:700;font-size:0.84rem;color:#1e293b">'+r.client_name+'</div><div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ '+(r.visit_time||'—')+'</div>'+(cU?'<a href="'+cU+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>':'')+'</div>';
+    var cs2 = r.coords||''; var isLk = cs2.indexOf('http')>=0||cs2.indexOf('maps')>=0; var dT='—',cU=null,etaStr='';
+    if (!isLk && cs2) {
+      var pp=cs2.replace(/\s/g,'').split(','); var pL=parseFloat(pp[0]),pG=parseFloat(pp[1]);
+      if(!isNaN(pL)&&!isNaN(pG)){
+        var dist=calcDist(tLat,tLng,pL,pG);
+        dT=dist.toFixed(1)+' كم';
+        var etaMin=Math.round((dist/30)*60);
+        etaStr=etaMin<60?etaMin+'د':Math.floor(etaMin/60)+'س '+etaMin%60+'د';
+        // استخدم إحداثيات مباشرة في الـ URL — مش رابط
+        cU='https://www.google.com/maps/dir/?api=1&origin='+tLat+','+tLng+'&destination='+pL+','+pG+'&travelmode=driving';
+      }
+    } else if(isLk){
+      // رابط Google Maps — استخرج الإحداثيات منه أو استخدم الـ origin فقط
+      var mCoords = cs2.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/)||cs2.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if(mCoords){
+        var mL=parseFloat(mCoords[1]),mG=parseFloat(mCoords[2]);
+        var dist2=calcDist(tLat,tLng,mL,mG);
+        dT=dist2.toFixed(1)+' كم';
+        var etaMin2=Math.round((dist2/30)*60);
+        etaStr=etaMin2<60?etaMin2+'د':Math.floor(etaMin2/60)+'س '+etaMin2%60+'د';
+        cU='https://www.google.com/maps/dir/?api=1&origin='+tLat+','+tLng+'&destination='+mL+','+mG+'&travelmode=driving';
+      } else {
+        dT='رابط';
+        cU='https://www.google.com/maps/dir/?api=1&origin='+tLat+','+tLng+'&destination_place_id=&destination='+encodeURIComponent(cs2)+'&travelmode=driving';
+      }
+    }
+    info+='<div style="background:#f0f4ff;border:1px solid rgba(30,79,163,0.15);border-radius:8px;padding:9px;grid-column:span 2"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:0.72rem;color:#64748b">'+(i===0?'العميل التالي':'العميل '+(i+1))+'</div><span style="background:'+(i===0?'#2563c4':'#94a3b8')+';color:#fff;border-radius:5px;padding:1px 7px;font-size:0.69rem;font-weight:700">📏 '+dT+(etaStr?' · ⏱️ '+etaStr:'')+'</span></div><div style="font-weight:700;font-size:0.84rem;color:#1e293b">'+r.client_name+'</div><div style="font-size:0.73rem;color:#64748b;margin-top:2px">⏰ '+(r.visit_time||'—')+'</div>'+(cU?'<a href="'+cU+'" target="_blank" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:#2563c4;color:#fff;padding:4px 10px;border-radius:6px;font-size:0.74rem;text-decoration:none;font-weight:700">🗺️ اتجاهات</a>':'')+'</div>';
   });
   document.getElementById('map-iframe').src = src;
   document.getElementById('map-info').innerHTML = info;
@@ -1113,13 +1141,19 @@ function buildCard(r, isAdmin) {
   if (!isAdmin && r.coords && r.status === 'pending') {
     const coordStr = r.coords;
     const isLink = coordStr.includes('http') || coordStr.includes('maps');
-    if (!isLink) {
-      const parts = coordStr.replace(/\s/g,'').split(',');
-      const cLat = parseFloat(parts[0]), cLng = parseFloat(parts[1]);
-      const tech = allUsers.find(u => u.id === r.tech_user);
-      if (!isNaN(cLat) && tech && tech.lat && tech.lng) {
+    const tech = allUsers.find(u => u.id === r.tech_user);
+    if (tech && tech.lat && tech.lng) {
+      let cLat = NaN, cLng = NaN;
+      if (!isLink) {
+        const parts = coordStr.replace(/\s/g,'').split(',');
+        cLat = parseFloat(parts[0]); cLng = parseFloat(parts[1]);
+      } else {
+        // استخرج الإحداثيات من رابط Google Maps
+        const m = coordStr.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/) || coordStr.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+        if (m) { cLat = parseFloat(m[1]); cLng = parseFloat(m[2]); }
+      }
+      if (!isNaN(cLat) && !isNaN(cLng)) {
         const dist = calcDist(parseFloat(tech.lat), parseFloat(tech.lng), cLat, cLng);
-        // ETA: متوسط سرعة 30 كم/ساعة في المدينة
         const etaMin = Math.round((dist / 30) * 60);
         const etaLabel = etaMin < 60 ? `${etaMin} دقيقة` : `${Math.floor(etaMin/60)}س ${etaMin%60}د`;
         etaHtml = `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.22);border-radius:10px;padding:9px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
@@ -1772,16 +1806,17 @@ function openAdminEdit(id) {
   const r = allInspections.find(x => x.id === id);
   if (!r) { showToast('⚠️ تعذّر تحميل بيانات المعاينة'); return; }
   activeAdminEditId = id;
-  document.getElementById('ae-cn').value  = r.client_name || '';
-  document.getElementById('ae-cp').value  = r.phone || '';
-  document.getElementById('ae-ca').value  = r.address || '';
-  document.getElementById('ae-vd').value  = r.visit_date || '';
-  document.getElementById('ae-vt').value  = r.visit_time || '';
-  document.getElementById('ae-st').value  = r.status || 'pending';
+  document.getElementById('ae-cn').value   = r.client_name || '';
+  document.getElementById('ae-cp').value   = r.phone || '';
+  document.getElementById('ae-ca').value   = r.address || '';
+  document.getElementById('ae-crd').value  = r.coords || '';
+  document.getElementById('ae-vd').value   = r.visit_date || '';
+  document.getElementById('ae-vt').value   = r.visit_time || '';
+  document.getElementById('ae-st').value   = r.status || 'pending';
   document.getElementById('ae-wins').value = r.windows_count || '';
-  document.getElementById('ae-pay').value = r.payment_status || '';
-  document.getElementById('ae-nt').value  = r.notes || '';
-  // ملء قائمة الفنيين
+  document.getElementById('ae-pay').value  = r.payment_status || '';
+  document.getElementById('ae-nt').value   = r.notes || '';
+  const msg = document.getElementById('ae-crd-msg'); if (msg) msg.style.display = 'none';
   const sel = document.getElementById('ae-tech');
   sel.innerHTML = '<option value="">-- اختر فني --</option>' +
     allUsers.filter(u => u.role === 'tech').map(u =>
@@ -1790,6 +1825,32 @@ function openAdminEdit(id) {
   document.getElementById('ae-savebtn').disabled = false;
   document.getElementById('ae-savebtn').textContent = '💾 حفظ التعديل';
   document.getElementById('mod-admin-edit').classList.add('open');
+}
+
+function aeParseCoords(val) {
+  if (!val || val.length < 5) return;
+  val = val.trim();
+  const msg = document.getElementById('ae-crd-msg');
+  // إحداثيات مباشرة
+  const direct = val.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (direct) {
+    msg.style.display = 'block'; msg.style.color = '#16a34a'; msg.textContent = '✅ إحداثيات صحيحة';
+    setTimeout(() => msg.style.display = 'none', 2000); return;
+  }
+  // رابط Google Maps — استخرج الإحداثيات
+  const patterns = [/@(-?\d+\.?\d*),(-?\d+\.?\d*)/,/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/,/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/];
+  for (const p of patterns) {
+    const m = val.match(p);
+    if (m) {
+      document.getElementById('ae-crd').value = parseFloat(m[1]).toFixed(6) + ', ' + parseFloat(m[2]).toFixed(6);
+      msg.style.display = 'block'; msg.style.color = '#16a34a'; msg.textContent = '✅ تم استخراج الموقع من الرابط';
+      setTimeout(() => msg.style.display = 'none', 2000); return;
+    }
+  }
+  if (val.includes('maps') || val.includes('goo.gl')) {
+    msg.style.display = 'block'; msg.style.color = '#16a34a'; msg.textContent = '✅ تم حفظ رابط الموقع';
+    setTimeout(() => msg.style.display = 'none', 2000);
+  }
 }
 
 async function saveAdminEdit() {
@@ -1804,6 +1865,7 @@ async function saveAdminEdit() {
     client_name:    document.getElementById('ae-cn').value.trim(),
     phone:          document.getElementById('ae-cp').value.trim(),
     address:        document.getElementById('ae-ca').value.trim(),
+    coords:         document.getElementById('ae-crd').value.trim(),
     visit_date:     document.getElementById('ae-vd').value,
     visit_time:     document.getElementById('ae-vt').value,
     tech_user:      techId,
@@ -1997,6 +2059,7 @@ const BULK_COL_MAP = {
   'الهاتف':['الهاتف','رقم الهاتف','phone','هاتف','تليفون'],
   'العنوان':['العنوان','address','العنوان الكامل'],
   'تاريخ المعاينة':['تاريخ المعاينة','التاريخ','visit_date','date'],
+  'وقت المعاينة':['وقت المعاينة','الوقت','visit_time','time','الوقت المعاينة'],
   'موقع العميل':['موقع العميل','الموقع','coords','location','موقع','رابط الموقع'],
   'اسم الفني':['اسم الفني','الفني','tech','tech_name'],
   'الحالة':['الحالة','status','حالة المعاينة'],
@@ -2043,6 +2106,7 @@ function handleBulkFile(e) {
         const phone   = findColValue(row, BULK_COL_MAP['الهاتف']);
         const addr    = findColValue(row, BULK_COL_MAP['العنوان']);
         const vdate   = findColValue(row, BULK_COL_MAP['تاريخ المعاينة']);
+        const vtime   = findColValue(row, BULK_COL_MAP['وقت المعاينة']);
         const coords  = findColValue(row, BULK_COL_MAP['موقع العميل']);
         const techN   = findColValue(row, BULK_COL_MAP['اسم الفني']);
         const stRaw   = findColValue(row, BULK_COL_MAP['الحالة']);
@@ -2067,7 +2131,7 @@ function handleBulkFile(e) {
         const wCount   = parseInt(wins) || 0;
         const valid    = !!(name && phone && addr);
 
-        return { _idx: idx+2, name, phone, addr, visitDate, coords, techN, techUser: techUser||null, status, payment, wCount, notes, valid };
+        return { _idx: idx+2, name, phone, addr, visitDate, vtime, coords, techN, techUser: techUser||null, status, payment, wCount, notes, valid };
       });
       renderBulkPreview();
     } catch(err) {
@@ -2121,7 +2185,7 @@ async function saveBulkInspections() {
       tech_user: r.techUser?.id || '',
       tech_name: r.techUser?.name || r.techN || '',
       visit_date: r.visitDate || '',
-      visit_time: '',
+      visit_time: r.vtime || '',
       status: r.status || 'pending',
       notes: r.notes || '',
       windows_count: r.wCount || 0,
@@ -2158,8 +2222,8 @@ function resetBulk() {
 }
 
 function downloadBulkTemplate() {
-  const headers = [['الاسم','الهاتف','العنوان','تاريخ المعاينة','موقع العميل','اسم الفني','الحالة','عدد الشبابيك','حالة الدفع','ملاحظات']];
-  const sample  = [['أحمد محمد','01012345678','القاهرة - مدينة نصر','2025-06-01','https://maps.app.goo.gl/...','محمد الفني','انتظار','3','تحصيل معاين','مقاسات خاصة']];
+  const headers = [['الاسم','الهاتف','العنوان','تاريخ المعاينة','وقت المعاينة','موقع العميل','اسم الفني','الحالة','عدد الشبابيك','حالة الدفع','ملاحظات']];
+  const sample  = [['أحمد محمد','01012345678','القاهرة - مدينة نصر','2025-06-01','14:00','https://maps.app.goo.gl/...','محمد الفني','انتظار','3','تحصيل معاين','مقاسات خاصة']];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([...headers, ...sample]);
   ws['!cols'] = headers[0].map(() => ({ wch: 20 }));
