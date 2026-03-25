@@ -1656,7 +1656,13 @@ async function doGPS() {
   }, function() {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 });
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden && isTracking) doGPS(); });
+document.addEventListener('visibilitychange', async () => {
+  if (!document.hidden && isTracking) doGPS();
+  // لما الفني يرجع للتطبيق بعد ما كان في الخلفية — حدّث الجلسة
+  if (!document.hidden && CU && CU.role === 'tech' && sessionStart) {
+    // الجلسة لسه مفتوحة — مش محتاجين نعمل حاجة
+  }
+});
 
 // ============================================
 // UPDATE MODAL (Tech) — مع تطبيق الترتيب الإلزامي
@@ -2431,6 +2437,8 @@ function exportCSV() {
 let sessionStart = null;
 
 async function startSession() {
+  // أقفل أي جلسات يتيمة (مفتوحة) قبل ما نبدأ جديدة
+  await endSession();
   sessionStart = cairoISO();
   await sb.from('online_sessions').insert({
     tech_user: CU.id, tech_name: CU.name,
@@ -2439,13 +2447,22 @@ async function startSession() {
 }
 
 async function endSession() {
-  if (!sessionStart || !CU) return;
-  const now = new Date();
-  const start = new Date(sessionStart);
-  const durMin = Math.round((now - start) / 60000);
-  await sb.from('online_sessions')
-    .update({ logout_at: cairoISO(), duration_min: durMin })
+  if (!CU) return;
+  // اجلب كل الجلسات المفتوحة من الداتابيز وحدّث كل واحدة بالمدة الصح
+  const { data: openSessions } = await sb.from('online_sessions')
+    .select('id, login_at')
     .eq('tech_user', CU.id).is('logout_at', null);
+  const nowISO = cairoISO();
+  const nowMs = new Date().getTime();
+  if (openSessions && openSessions.length > 0) {
+    for (const sess of openSessions) {
+      const loginMs = new Date(sess.login_at).getTime();
+      const durMin = Math.max(1, Math.round((nowMs - loginMs) / 60000));
+      await sb.from('online_sessions')
+        .update({ logout_at: nowISO, duration_min: durMin })
+        .eq('id', sess.id);
+    }
+  }
   sessionStart = null;
 }
 
@@ -2464,12 +2481,20 @@ async function renderOnlineReport() {
   data.forEach(s => {
     if (!byTech[s.tech_user]) byTech[s.tech_user] = { name: s.tech_name, sessions: [], totalMin: 0 };
     byTech[s.tech_user].sessions.push(s);
-    byTech[s.tech_user].totalMin += s.duration_min || 0;
+    // لو الجلسة مفتوحة (مفيش logout) — احسب المدة من login لحد دلوقتي
+    if (s.duration_min != null) {
+      byTech[s.tech_user].totalMin += s.duration_min;
+    } else if (s.login_at) {
+      const liveDur = Math.max(1, Math.round((Date.now() - new Date(s.login_at).getTime()) / 60000));
+      s._liveDur = liveDur;
+      byTech[s.tech_user].totalMin += liveDur;
+    }
   });
   c.innerHTML = Object.values(byTech).map(t => {
     const hrs = Math.floor(t.totalMin / 60), mins = t.totalMin % 60;
     const rows = t.sessions.map(s => {
-      const dur = s.duration_min != null ? `${Math.floor(s.duration_min/60)}س ${s.duration_min%60}د` : '—';
+      const actualDur = s.duration_min != null ? s.duration_min : (s._liveDur || 0);
+      const dur = actualDur ? `${Math.floor(actualDur/60)}س ${actualDur%60}د` : '—';
       return `<tr style="border-bottom:1px solid rgba(30,79,163,0.07)">
         <td style="padding:7px 8px;font-size:0.78rem;color:#1e293b">${fmtTime(s.login_at)}</td>
         <td style="padding:7px 8px;font-size:0.78rem;color:#64748b">${s.logout_at ? fmtTime(s.logout_at) : '<span style="color:#16a34a">متصل الآن</span>'}</td>
@@ -2503,12 +2528,18 @@ async function exportOnlineCSV() {
     .order('login_at', { ascending: false });
   if (!data?.length) { showToast('⚠️ لا توجد بيانات'); return; }
   const headers = ['الفني','وقت الدخول','وقت الخروج','المدة (دقيقة)','المدة (ساعة:دقيقة)'];
-  const rows = data.map(s => [
-    s.tech_name||'', s.login_at ? fmtTime(s.login_at) : '',
-    s.logout_at ? fmtTime(s.logout_at) : 'متصل الآن',
-    s.duration_min ?? '',
-    s.duration_min != null ? `${Math.floor(s.duration_min/60)}:${String(s.duration_min%60).padStart(2,'0')}` : ''
-  ]);
+  const rows = data.map(s => {
+    let dur = s.duration_min;
+    if (dur == null && s.login_at) {
+      dur = Math.max(1, Math.round((Date.now() - new Date(s.login_at).getTime()) / 60000));
+    }
+    return [
+      s.tech_name||'', s.login_at ? fmtTime(s.login_at) : '',
+      s.logout_at ? fmtTime(s.logout_at) : 'متصل الآن',
+      dur ?? '',
+      dur != null ? `${Math.floor(dur/60)}:${String(dur%60).padStart(2,'0')}` : ''
+    ];
+  });
   const csv = '\uFEFF' + [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -2531,12 +2562,30 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 // بما إن عندنا auto-login — مش محتاجين نمنع الخروج
 // الفني يقدر يقفل ويرجع والجلسة هتترجع تلقائي
 window.addEventListener('beforeunload', function() {
-  // لو الفني فاتح التتبع — ابعت آخر ping قبل ما يقفل
-  if (CU && CU.role === 'tech' && isTracking) {
-    navigator.sendBeacon && navigator.sendBeacon(
-      SB_URL + '/rest/v1/technicians?id=eq.' + CU.id,
-      '' // just a ping
-    );
+  if (CU && CU.role === 'tech') {
+    // أقفل الجلسة الحالية — fetch keepalive يضمن إنها توصل حتى لو الصفحة اتقفلت
+    if (sessionStart) {
+      const loginMs = new Date(sessionStart).getTime();
+      const durMin = Math.max(1, Math.round((Date.now() - loginMs) / 60000));
+      const nowISO = cairoISO();
+      try {
+        fetch(SB_URL + '/rest/v1/online_sessions?tech_user=eq.' + CU.id + '&logout_at=is.null', {
+          method: 'PATCH', keepalive: true,
+          headers: { 'Content-Type':'application/json', 'apikey': SB_KEY, 'Authorization':'Bearer '+SB_KEY, 'Prefer':'return=minimal' },
+          body: JSON.stringify({ logout_at: nowISO, duration_min: durMin })
+        });
+      } catch(e) {}
+    }
+    // لو الفني فاتح التتبع — ابعت آخر ping
+    if (isTracking) {
+      try {
+        fetch(SB_URL + '/rest/v1/technicians?id=eq.' + CU.id, {
+          method: 'PATCH', keepalive: true,
+          headers: { 'Content-Type':'application/json', 'apikey': SB_KEY, 'Authorization':'Bearer '+SB_KEY, 'Prefer':'return=minimal' },
+          body: JSON.stringify({ online: true, last_seen: Date.now() })
+        });
+      } catch(e) {}
+    }
   }
 });
 
