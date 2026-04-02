@@ -188,6 +188,10 @@ body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%
 .modal-body::-webkit-scrollbar-thumb{background:rgba(30,79,163,0.2);border-radius:2px}
 .modal-footer{padding:12px 18px;border-top:1px solid rgba(30,79,163,0.1);background:#fff;flex-shrink:0;display:flex;gap:9px;justify-content:flex-end;padding-bottom:max(12px,env(safe-area-inset-bottom))}
 
+/* HIDE TRACKING BUTTON — auto-tracking only */
+#t-trkbtn{display:none!important}
+#t-perm-box{display:none!important}
+
 /* FILTER */
 .fbar{display:flex;gap:7px;margin-bottom:11px;flex-wrap:wrap}
 .fbar input,.fbar select{background:#f8faff;border:1px solid rgba(30,79,163,0.18);border-radius:7px;padding:7px 11px;color:#1e293b;font-family:'Cairo',sans-serif;font-size:0.79rem;outline:none;flex:1;min-width:110px}
@@ -395,6 +399,7 @@ const CLD_PRESET = 'naguib_selim';
       <div class="divider"><h2>كل المعاينات</h2></div>
       <div class="fbar">
         <input type="text" id="a-srch" placeholder="🔍 بحث..." oninput="renderAdminList()">
+        <input type="date" id="a-fdate" onchange="renderAdminList()" style="flex:1;min-width:0">
         <select id="a-fst" onchange="renderAdminList()">
           <option value="">كل الحالات</option>
           <option value="pending">انتظار</option>
@@ -770,7 +775,7 @@ function setLoading(on) {
 }
 
 async function doLogout() {
-  if (isTracking) stopTracking();
+  if (isTracking) stopTracking(true);
   if (CU && CU.role === 'tech') {
     await endSession();
     await sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
@@ -1035,10 +1040,12 @@ function openGMaps() {
 async function renderAdminList() {
   const srch = (document.getElementById('a-srch').value || '').toLowerCase();
   const fst = document.getElementById('a-fst').value;
+  const fdate = document.getElementById('a-fdate').value;
   if (!allInspections.length) await loadAllData();
   const filtered = allInspections.filter(r => {
     const ms = !srch || (r.client_name||'').toLowerCase().includes(srch) || (r.phone||'').includes(srch) || (r.tech_name||'').toLowerCase().includes(srch);
-    return ms && (!fst || r.status === fst);
+    const dateMatch = !fdate || r.visit_date === fdate;
+    return ms && (!fst || r.status === fst) && dateMatch;
   });
   const c = document.getElementById('a-listcon');
   c.innerHTML = filtered.length ? filtered.map(r => buildCard(r, true)).join('') : '<div class="empty"><div class="ei">📋</div><p>لا توجد نتائج</p></div>';
@@ -1164,6 +1171,40 @@ function buildCard(r, isAdmin) {
     }
   }
 
+  // ETA للأدمن — يظهر لو الفني أونلاين والمعاينة pending وعندها coords
+  let adminEtaHtml = '';
+  if (isAdmin && r.coords && r.status === 'pending' && r.tech_user) {
+    const techForEta = allUsers.find(u => u.id === r.tech_user);
+    const clientCoordsAdmin = extractCoordsFromLink(r.coords);
+    if (techForEta && techForEta.lat && techForEta.lng && clientCoordsAdmin) {
+      // اعرض ETA لو المعاينة بدأت أو فاضل عليها ساعة
+      let showEta = !r.visit_time; // لو مفيش وقت — اعرض دايماً
+      if (r.visit_time && r.visit_date) {
+        const nowMs = Date.now();
+        const inspMs = new Date(r.visit_date + 'T' + r.visit_time).getTime();
+        showEta = (inspMs - nowMs) <= 60 * 60 * 1000; // فاضل ساعة أو أقل أو فات
+      }
+      if (showEta) {
+        const distA = calcDist(parseFloat(techForEta.lat), parseFloat(techForEta.lng), clientCoordsAdmin.lat, clientCoordsAdmin.lng);
+        const etaMinA = Math.round((distA / 30) * 60);
+        const etaLabelA = etaMinA < 60 ? etaMinA + ' دقيقة' : Math.floor(etaMinA/60) + 'س ' + (etaMinA%60) + 'د';
+        const isOnlineA = techForEta.online && techForEta.last_seen && (Date.now() - techForEta.last_seen < 35*60*1000);
+        adminEtaHtml = `<div style="background:#eff6ff;border:1px solid rgba(37,99,196,0.22);border-radius:10px;padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div>
+            <div style="font-size:0.68rem;color:#64748b;margin-bottom:2px">📏 المسافة</div>
+            <div style="font-weight:900;color:#1e4fa3;font-size:0.95rem">${distA.toFixed(1)} كم</div>
+          </div>
+          <div style="width:1px;height:28px;background:rgba(37,99,196,0.18)"></div>
+          <div>
+            <div style="font-size:0.68rem;color:#64748b;margin-bottom:2px">⏱️ ETA</div>
+            <div style="font-weight:900;color:#1e4fa3;font-size:0.95rem">${etaLabelA}</div>
+          </div>
+          <div style="font-size:0.6rem;color:#94a3b8">${isOnlineA ? '🟢 مباشر' : '⚪ آخر موقع'}</div>
+        </div>`;
+      }
+    }
+  }
+
   return `<div class="icard">
     <div class="ic-top">
       <div style="display:flex;flex-direction:column;gap:4px">
@@ -1174,6 +1215,7 @@ function buildCard(r, isAdmin) {
     </div>
     <div class="ic-addr">🏠 ${r.address}</div>
     ${timeBox}
+    ${adminEtaHtml}
     ${etaHtml}
     ${locHtml}
     ${winsHtml || payHtml ? `<div style="margin-bottom:7px;display:flex;gap:6px;flex-wrap:wrap">${winsHtml}${payHtml}</div>` : ''}
@@ -1431,51 +1473,66 @@ let _locationGranted = false;
 
 // Check and request permission on tech login
 async function checkLocationPermission() {
-  // Check if permission API available
   if (navigator.permissions && navigator.permissions.query) {
     try {
       var result = await navigator.permissions.query({ name: 'geolocation' });
       console.log('[PERM] Status:', result.state);
       if (result.state === 'granted') {
         _locationGranted = true;
-        document.getElementById('t-perm-box').style.display = 'none';
-        document.getElementById('t-trkbtn').style.display = '';
+        // شغّل التتبع تلقائي
+        if (!isTracking) startTracking();
         return;
       }
       if (result.state === 'denied') {
-        document.getElementById('t-perm-box').style.display = 'block';
-        document.getElementById('t-trkbtn').style.display = 'none';
-        document.getElementById('t-perm-status').innerHTML =
-          '<span style="color:#dc2626;font-weight:700">❌ الصلاحية مرفوضة!</span><br>' +
-          'روح: <strong>إعدادات الهاتف → التطبيقات → Chrome → الأذونات → الموقع → سماح</strong><br>' +
-          'بعدين ارجع هنا واضغط الزرار تاني';
+        // حاول نطلب الصلاحية مباشرة — بعض المتصفحات بتسمح
+        navigator.geolocation.getCurrentPosition(
+          function(pos) {
+            _locationGranted = true;
+            saveLocationQuick(pos.coords.latitude, pos.coords.longitude);
+            if (!isTracking) startTracking();
+          },
+          function() {
+            console.log('[PERM] Denied — cannot auto-track');
+          },
+          { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
+        );
         return;
       }
-      // state === 'prompt' — show permission box
-      document.getElementById('t-perm-box').style.display = 'block';
-      document.getElementById('t-trkbtn').style.display = 'none';
-
+      // state === 'prompt' — اطلب الصلاحية مباشرة بدل ما نستنى الزرار
+      navigator.geolocation.getCurrentPosition(
+        function(pos) {
+          _locationGranted = true;
+          saveLocationQuick(pos.coords.latitude, pos.coords.longitude);
+          if (!isTracking) startTracking();
+        },
+        function(err) {
+          console.log('[PERM] Prompt failed:', err.code);
+        },
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 }
+      );
       // Listen for permission change
       result.onchange = function() {
         console.log('[PERM] Changed to:', result.state);
         if (result.state === 'granted') {
           _locationGranted = true;
-          document.getElementById('t-perm-box').style.display = 'none';
-          document.getElementById('t-trkbtn').style.display = '';
-          showToast('✅ تم تفعيل صلاحية الموقع!');
+          if (!isTracking) startTracking();
         }
       };
     } catch(e) {
       console.log('[PERM] API error:', e);
-      // Can't check — show tracking button directly
-      document.getElementById('t-perm-box').style.display = 'none';
-      document.getElementById('t-trkbtn').style.display = '';
+      if (!isTracking) startTracking();
     }
   } else {
-    // No permission API — show tracking button directly
-    document.getElementById('t-perm-box').style.display = 'none';
-    document.getElementById('t-trkbtn').style.display = '';
+    // No permission API — start tracking directly
+    if (!isTracking) startTracking();
   }
+}
+
+// حفظ سريع للموقع من checkLocationPermission
+function saveLocationQuick(lat, lng) {
+  sb.from('technicians').update({
+    lat: lat, lng: lng, online: true, last_seen: Date.now()
+  }).eq('id', CU.id);
 }
 
 // This function is called when user presses the orange permission button
@@ -1491,15 +1548,16 @@ function requestLocationPermission() {
       var acc = Math.round(pos.coords.accuracy);
       console.log('[PERM] Granted! Location:', lat, lng, 'acc:', acc);
 
-      document.getElementById('t-perm-box').style.display = 'none';
-      document.getElementById('t-trkbtn').style.display = '';
-      showToast('✅ تم تفعيل صلاحية الموقع! دوس على تفعيل التتبع');
+      showToast('✅ تم تفعيل صلاحية الموقع!');
 
       // Save this first location immediately
       sb.from('technicians').update({
         lat: lat, lng: lng,
         online: true, last_seen: Date.now()
       }).eq('id', CU.id);
+
+      // شغّل التتبع تلقائي
+      if (!isTracking) startTracking();
     },
     function(err) {
       console.log('[PERM] Error:', err.code, err.message);
@@ -1634,16 +1692,15 @@ function startTracking() {
   showToast('📡 جاري تحديد الموقع...');
 }
 
-function stopTracking() {
+function stopTracking(clearLocation) {
   isTracking = false;
   if (_watchId !== null) { navigator.geolocation.clearWatch(_watchId); _watchId = null; }
   clearInterval(trackInterval);
-  document.getElementById('t-trkbtn').className = 'trk-btn trk-on';
-  document.getElementById('t-trkicon').textContent = '📡';
-  document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
   document.getElementById('t-loccrd').style.display = 'none';
-  sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
-  showToast('⏹️ تم إيقاف التتبع');
+  // لو clearLocation=true (logout فقط) — امسح الموقع، غير كده خليه
+  if (clearLocation) {
+    sb.from('technicians').update({ online: false, lat: null, lng: null }).eq('id', CU.id);
+  }
 }
 
 async function doGPS() {
@@ -1657,10 +1714,10 @@ async function doGPS() {
 }
 
 document.addEventListener('visibilitychange', async () => {
-  if (!document.hidden && isTracking) doGPS();
-  // لما الفني يرجع للتطبيق بعد ما كان في الخلفية — حدّث الجلسة
-  if (!document.hidden && CU && CU.role === 'tech' && sessionStart) {
-    // الجلسة لسه مفتوحة — مش محتاجين نعمل حاجة
+  if (!document.hidden && CU && CU.role === 'tech') {
+    // لما الفني يرجع للتطبيق — أعد تشغيل التتبع لو مش شغال
+    if (!isTracking) startTracking();
+    else doGPS();
   }
 });
 
@@ -1677,6 +1734,30 @@ async function openUpdateModal(id) {
   }
   // تحقق من الترتيب — الفني لازم يعمل update للمعاينة الأولى pending أولاً
   const today = cairoDate();
+  const rForCheck = allInspections.find(x => x.id === id);
+  const isPastInspection = rForCheck && rForCheck.visit_date && rForCheck.visit_date < today;
+  const isCompletedInspection = rForCheck && rForCheck.status !== 'pending';
+
+  // لو المعاينة قديمة أو مش pending — اسمحله يفتح (عشان يرفع ملفات)
+  if (isPastInspection || isCompletedInspection) {
+    activeUpdateId = id;
+    const r = allInspections.find(x => x.id === id) || {};
+    pendingFiles.um = [];
+    renderPendingFiles('um');
+    document.getElementById('um-st').disabled = true;
+    document.getElementById('um-st').value = r.status || 'pending';
+    document.getElementById('um-nt').disabled = false;
+    document.getElementById('um-nt').value = r.notes || '';
+    document.getElementById('um-savebtn').disabled = false;
+    document.getElementById('um-savebtn').textContent = '💾 حفظ (مرفقات فقط)';
+    document.getElementById('um-info').innerHTML = `
+      <div style="background:#f0f4ff;border:1px solid rgba(37,99,196,0.2);border-radius:10px;padding:10px;text-align:center">
+        <div style="font-size:0.82rem;color:#1e4fa3;font-weight:600">📎 يمكنك إرفاق ملفات PDF أو صور فقط</div>
+      </div>`;
+    document.getElementById('mod-update').classList.add('open');
+    return;
+  }
+
   const todayPending = allInspections
     .filter(r => r.tech_user === CU.id && r.visit_date === today && r.status === 'pending')
     .sort((a,b) => (a.visit_time||'99:99').localeCompare(b.visit_time||'99:99'));
@@ -2016,9 +2097,23 @@ function closeModal(id) {
 function extractCoordsFromLink(str) {
   if (!str) return null;
   if (!str.includes('http') && !str.includes('maps')) {
+    // حاول decimal أولاً: "30.123, 31.456"
     const parts = str.replace(/\s/g,'').split(',');
     const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
     if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90) return { lat, lng };
+    // حاول DMS format: N 31°27'06.0" E 29°57'07.4" أو أي ترتيب
+    const dmsMatch = str.match(/(\d+)[°](\d+)[''′](\d+\.?\d*)[""″]?/g);
+    if (dmsMatch && dmsMatch.length >= 2) {
+      function parseDMS(s) {
+        const m = s.match(/(\d+)[°](\d+)[''′](\d+\.?\d*)/);
+        if (!m) return NaN;
+        return parseFloat(m[1]) + parseFloat(m[2])/60 + parseFloat(m[3])/3600;
+      }
+      let dLat = parseDMS(dmsMatch[0]), dLng = parseDMS(dmsMatch[1]);
+      if (str.includes('S')) dLat = -dLat;
+      if (str.includes('W')) dLng = -dLng;
+      if (!isNaN(dLat) && !isNaN(dLng) && dLat >= -90 && dLat <= 90) return { lat: dLat, lng: dLng };
+    }
     return null;
   }
   const patterns = [
@@ -2143,16 +2238,38 @@ function handleBulkFile(e) {
         const payRaw  = findColValue(row, BULK_COL_MAP['حالة الدفع']);
         const notes   = findColValue(row, BULK_COL_MAP['ملاحظات']);
 
-        // تحويل تاريخ Date object لو SheetJS رجّعه كـ Date
-        let visitDate = vdate;
+        // تحويل تاريخ — SheetJS ممكن يرجّعه كـ Date أو رقم أو نص
+        let visitDate = '';
         if (vdate && typeof vdate === 'object' && vdate instanceof Date) {
-          visitDate = vdate.toISOString().split('T')[0];
+          // Date object — استخدم local date مش UTC عشان ميبقاش فيه فرق يوم
+          const yy = vdate.getFullYear();
+          const mo = String(vdate.getMonth()+1).padStart(2,'0');
+          const dd = String(vdate.getDate()).padStart(2,'0');
+          visitDate = `${yy}-${mo}-${dd}`;
         } else if (typeof vdate === 'number' && vdate > 30000) {
+          // Excel serial date
           const exDate = new Date((vdate - 25569) * 86400000);
           visitDate = exDate.toISOString().split('T')[0];
-        } else if (typeof vdate === 'string' && vdate.includes('/')) {
-          const parts = vdate.split('/');
-          if (parts.length === 3) visitDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+        } else if (typeof vdate === 'number' && vdate >= 1 && vdate <= 30000) {
+          // Small number — might be days offset, skip
+          visitDate = '';
+        } else if (typeof vdate === 'string' && vdate.trim()) {
+          const dstr = vdate.trim();
+          if (dstr.includes('/')) {
+            const parts = dstr.split('/');
+            if (parts.length === 3) {
+              // DD/MM/YYYY or MM/DD/YYYY — assume DD/MM/YYYY
+              const d = parts[0].padStart(2,'0'), m = parts[1].padStart(2,'0'), y = parts[2];
+              visitDate = y.length === 4 ? `${y}-${m}-${d}` : `20${y}-${m}-${d}`;
+            }
+          } else if (dstr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            visitDate = dstr; // Already YYYY-MM-DD
+          } else if (dstr.match(/^\d{1,2}-\d{1,2}-\d{4}$/)) {
+            const parts = dstr.split('-');
+            visitDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+          } else {
+            visitDate = dstr; // Pass through
+          }
         }
 
         // تحويل وقت المعاينة — SheetJS ممكن يرجعه كـ Date أو رقم عشري أو نص
