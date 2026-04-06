@@ -570,7 +570,7 @@ const sb = createClient(SB_URL, SB_KEY);
 // STATE
 // ============================================
 let CU = null;
-let trackInterval = null;
+let watchId = null;
 let isTracking = false;
 let activeUpdateId = null;
 let pendingFiles = { a: [], um: [] };
@@ -1455,7 +1455,7 @@ function startTracking() {
 function stopTracking() {
   isTracking = false;
   if (_watchId !== null) { navigator.geolocation.clearWatch(_watchId); _watchId = null; }
-  clearInterval(trackInterval);
+  if(watchId){ navigator.geolocation.clearWatch(watchId); watchId=null; }
   document.getElementById('t-trkbtn').className = 'trk-btn trk-on';
   document.getElementById('t-trkicon').textContent = '📡';
   document.getElementById('t-trklbl').textContent = 'تفعيل التتبع المباشر';
@@ -1559,6 +1559,10 @@ function navToClient(coords) {
 }
 
 async function saveUpdate() {
+  if(!isTracking){
+    showToast('يجب تشغيل التتبع أولاً قبل تحديث حالة المعاينة');
+    return;
+  }
   const btn = document.getElementById('um-savebtn');
   btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...';
   const uploadedLinks = await uploadAllFiles('um');
@@ -1746,7 +1750,7 @@ function exportCSV() {
   const sm = { complete:'تامة', refused:'رفض', postponed:'تأجيل', cancelled:'إلغاء', pending:'انتظار' };
 
   // الأعمدة المطلوبة
-  const headers = [
+  const headers = ['تاريخ الإنشاء',
     'اسم العميل',
     'رقم التليفون',
     'العنوان',
@@ -1863,7 +1867,7 @@ async function exportOnlineCSV() {
     .select('*').gte('login_at', from + 'T00:00:00').lte('login_at', to + 'T23:59:59')
     .order('login_at', { ascending: false });
   if (!data?.length) { showToast('⚠️ لا توجد بيانات'); return; }
-  const headers = ['الفني','وقت الدخول','وقت الخروج','المدة (دقيقة)','المدة (ساعة:دقيقة)'];
+  const headers = ['تاريخ الإنشاء','الفني','وقت الدخول','وقت الخروج','المدة (دقيقة)','المدة (ساعة:دقيقة)'];
   const rows = data.map(s => [
     s.tech_name||'', s.login_at ? fmtTime(s.login_at) : '',
     s.logout_at ? fmtTime(s.logout_at) : 'متصل الآن',
