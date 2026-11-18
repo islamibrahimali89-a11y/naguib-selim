@@ -256,6 +256,46 @@ body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%
 
 @media(min-width:580px){.screen,.modal{max-width:480px;margin:0 auto}}
 </style>
+<style>
+/* مقاسات الشبابيك — شكل مناسب للموبايل */
+.nsw-wrap{margin-top:4px}
+.nsw-top{display:flex;gap:8px;align-items:flex-end;margin-bottom:8px}
+.nsw-top .fg{flex:0 0 120px;margin-bottom:0}
+.nsw-sum{flex:1;font-size:0.76rem;font-weight:700;color:#1e4fa3;
+  background:#f0f4ff;border:1px solid rgba(30,79,163,0.18);border-radius:9px;
+  padding:10px 11px;min-height:41px;display:flex;align-items:center}
+.nsw-empty{font-size:0.78rem;color:#94a3b8;background:#f8faff;
+  border:1px dashed var(--bdr);border-radius:9px;padding:14px;text-align:center}
+.nsw-card{border:1.5px solid var(--bdr);border-radius:11px;margin-bottom:8px;
+  background:#fff;overflow:hidden}
+.nsw-card.open{border-color:var(--bdrb);box-shadow:0 3px 14px rgba(30,79,163,0.10)}
+.nsw-hd{width:100%;display:flex;align-items:center;gap:9px;padding:11px 12px;
+  background:#f8faff;border:none;cursor:pointer;font-family:'Cairo',sans-serif;text-align:right}
+.nsw-card.open .nsw-hd{background:#eef3ff}
+.nsw-num{flex:0 0 auto;width:26px;height:26px;border-radius:8px;background:var(--g3);
+  color:#fff;font-weight:800;font-size:0.8rem;display:flex;align-items:center;justify-content:center}
+.nsw-ttl{flex:1;font-size:0.85rem;font-weight:700;color:#1e293b;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nsw-badge{flex:0 0 auto;font-size:0.7rem;font-weight:700;color:#64748b;
+  background:#e8eef9;border-radius:20px;padding:3px 9px}
+.nsw-badge.ok{background:rgba(22,163,74,0.14);color:#16a34a}
+.nsw-arrow{flex:0 0 auto;font-size:0.65rem;color:#94a3b8}
+.nsw-body{padding:11px 12px 13px;border-top:1px solid var(--bdr)}
+.nsw-copy{width:100%;margin-bottom:10px;padding:8px;border-radius:9px;cursor:pointer;
+  background:#f1f5f9;border:1px solid rgba(30,79,163,0.18);color:#475569;
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:0.78rem}
+.nsw-fg{margin-bottom:9px}
+.nsw-fl{font-size:0.75rem;color:#475569;font-weight:600;margin-bottom:5px}
+.nsw-in{width:100%;background:#f8faff;border:1.5px solid var(--bdr);border-radius:9px;
+  padding:10px 12px;color:#1e293b;font-family:'Cairo',sans-serif;font-size:0.87rem;outline:none}
+.nsw-in:focus{border-color:var(--g4);background:rgba(59,130,246,0.06)}
+.nsw-seg{display:flex;gap:6px;flex-wrap:wrap}
+.nsw-seg button{flex:1 1 44%;padding:9px 6px;border-radius:9px;cursor:pointer;
+  background:#f8faff;border:1.5px solid var(--bdr);color:#475569;
+  font-family:'Cairo',sans-serif;font-weight:700;font-size:0.78rem}
+.nsw-seg button.on{background:linear-gradient(135deg,var(--g2),var(--g3));
+  border-color:transparent;color:#fff;box-shadow:0 3px 10px rgba(37,99,196,0.28)}
+</style>
 </head>
 <body>
 
@@ -547,6 +587,16 @@ const CLD_PRESET = 'naguib_selim';
           <option value="postponed">⏸️ تأجيل</option>
           <option value="cancelled">🚫 إلغاء</option>
         </select>
+      </div>
+      <div class="fg nsw-wrap">
+        <div class="fl">🪟 مقاسات الشبابيك <span style="font-weight:400;color:#94a3b8">(اختياري دلوقتي — بتوفّر على البائع وقت كبير)</span></div>
+        <div class="nsw-top">
+          <div class="fg"><div class="fl">عدد الشبابيك</div>
+            <input class="fi" id="nsw-count" type="text" inputmode="numeric" dir="ltr"
+                   placeholder="0" oninput="nswCount(this.value)"></div>
+          <div class="nsw-sum" id="nsw-sum"></div>
+        </div>
+        <div id="nsw-host"></div>
       </div>
       <div class="fg"><div class="fl">📝 ملاحظات</div><textarea class="fta" id="um-nt" placeholder="ملاحظات المعاينة..."></textarea></div>
       <div class="fg">
@@ -1750,6 +1800,7 @@ async function openUpdateModal(id) {
     document.getElementById('um-nt').value = r.notes || '';
     document.getElementById('um-savebtn').disabled = false;
     document.getElementById('um-savebtn').textContent = '💾 حفظ (مرفقات فقط)';
+    nswLoad(r);   /* مقاسات الشبابيك — يقدر يكمّلها بعدين */
     document.getElementById('um-info').innerHTML = `
       <div style="background:#f0f4ff;border:1px solid rgba(37,99,196,0.2);border-radius:10px;padding:10px;text-align:center">
         <div style="font-size:0.82rem;color:#1e4fa3;font-weight:600">📎 يمكنك إرفاق ملفات PDF أو صور فقط</div>
@@ -1814,6 +1865,7 @@ async function openUpdateModal(id) {
   document.getElementById('um-savebtn').textContent = '💾 حفظ التحديث';
   document.getElementById('um-st').value = r.status || 'pending';
   document.getElementById('um-nt').value = r.notes || '';
+  nswLoad(r);   /* مقاسات الشبابيك */
 
   // المسافة من موقع الفني لو متاح
   let distInfo = '';
@@ -1861,10 +1913,16 @@ async function saveUpdate() {
   const existingFiles = r?.files || [];
   const newStatus = document.getElementById('um-st').value;
   const statusChanged = r?.status !== newStatus;
+  const nswMsg = nswValidate();
+  if (nswMsg) { btn.disabled = false; btn.textContent = '💾 حفظ التحديث';
+                showToast('⚠️ ' + nswMsg); return; }
+  const nswList = nswCollect();
   const updateData = {
     status: newStatus,
     notes: document.getElementById('um-nt').value.trim(),
-    files: [...existingFiles, ...uploadedLinks]
+    files: [...existingFiles, ...uploadedLinks],
+    windows: nswList,
+    windows_count: nswList.length || (r?.windows_count || 0)
   };
   if (statusChanged) updateData.status_changed_at = cairoISO();
   const { error } = await sb.from('inspections').update(updateData).eq('id', activeUpdateId);
@@ -2741,6 +2799,216 @@ async function extractImages(inspId) {
     }
   }
   showToast(`✅ تم تحميل ${images.length} صورة`);
+}
+
+</script>
+<script>
+/* ============================================================
+   مقاسات الشبابيك في المعاينة  ·  NS Windows Module
+   ------------------------------------------------------------
+   الفني بيكتب مقاسات كل شباك هنا، وبتتخزن في inspections.windows
+   بنفس أسماء الحقول اللي حاسبة تفصيل الستائر بتقراها — فالبائع
+   بيلاقي الشبابيك متعبّية لوحدها ومش فاضل له غير القماش والتفصيل.
+
+   كل الخانات اختيارية دلوقتي. لما تيجي تخليها إلزامية:
+   غيّر NSW_REQUIRED لـ true — والباقي شغّال لوحده.
+   ============================================================ */
+
+/* إلزامية الخانات — false دلوقتي */
+const NSW_REQUIRED = false;
+
+/* الخانات اللي بتتسأل لكل شباك — دي بالظبط خانات المقاسات في ورقة المعاينة.
+   المفتاح k هو نفسه اسم الحقل في الحاسبة، فالتعبية نسخ مباشر.
+   الباقي (نطاق التركيب · نقطة التعليق · نهاية الستارة · القماش · التفصيل)
+   أسئلة البائع مع العميل — مش شغل الفني. */
+const NSW_FIELDS = [
+  { k:'wallWidth',   t:'العرض الكلي للحائط (م)',            type:'num', core:true, ph:'مثال 2.30' },
+  { k:'winWidth',    t:'عرض الشباك / الوحدة (م)',           type:'num', core:true, ph:'مثال 2.30' },
+  { k:'winHeight',   t:'ارتفاع الشباك (م)',                 type:'num', core:true, ph:'مثال 2.30' },
+  { k:'hCeiling',    t:'من الأرض للسقف (م)',                type:'num', core:true, ph:'مثال 2.30' },
+  { k:'drop',        t:'السقوط — من السقف لبداية الشباك (م)', type:'num', ph:'مثال 0.30' },
+  { k:'hWinStart',   t:'من الأرض لبداية الشباك (م)',        type:'num', ph:'مثال 0.80' },
+
+  { k:'winType',     t:'نوع الشباك',                        type:'seg',
+    opts:[['جرار','جرار'],['مفصلي','مفصلي']] },
+
+  { k:'slope',       t:'هل في ميل في السقف؟',                type:'seg',
+    opts:[['no','لا'],['yes','نعم']] },
+  { k:'slopeNote',   t:'تفاصيل الميل (للمكتب الفني)',       type:'text',
+    when:w=>w.slope==='yes', ph:'مثال: ٣ سم من الشمال' },
+
+  { k:'hasBox',      t:'يوجد بيت ستارة',                    type:'seg', core:true,
+    opts:[[true,'يوجد'],[false,'لا يوجد']] },
+  { k:'boxDepth',    t:'عمق بيت الستارة (سم)',              type:'num',
+    when:w=>w.hasBox!==false, core:true, ph:'مثال 19' },
+  { k:'boxHeight',   t:'ارتفاع بيت الستارة — من أوله للسقف (سم)', type:'num',
+    when:w=>w.hasBox!==false, ph:'مثال 20' }
+];
+
+/* القيم الافتراضية لأي شباك جديد — نفس افتراضيات الحاسبة */
+function nswBlank(){
+  return { wallWidth:'', winWidth:'', winHeight:'',
+           hCeiling:'', drop:'', hWinStart:'', winType:'جرار',
+           slope:'no', slopeNote:'', hasBox:true, boxDepth:'', boxHeight:'' };
+}
+
+/* حالة المحرّر الحالي */
+let NSW = { list: [], open: 0 };
+
+function nswShown(w){ return NSW_FIELDS.filter(f => !f.when || f.when(w)); }
+
+/* كام خانة اتملت في الشباك ده — بتظهر في عنوان الكارت */
+function nswFilled(w){
+  const sh = nswShown(w);
+  const done = sh.filter(f=>{
+    const v = w[f.k];
+    if (f.type === 'seg') return v !== '' && v !== undefined && v !== null;
+    return String(v == null ? '' : v).trim() !== '';
+  }).length;
+  return { done, all: sh.length };
+}
+
+/* بنعتبر الشباك «متعبّي» لو الأساسيات موجودة */
+function nswCore(w){
+  return NSW_FIELDS.filter(f => f.core && (!f.when || f.when(w)))
+                   .every(f => String(w[f.k] == null ? '' : w[f.k]).trim() !== '');
+}
+
+function nswEsc(s){ return String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------- الرسم ---------- */
+function nswRender(){
+  const host = document.getElementById('nsw-host');
+  if (!host) return;
+  const n = NSW.list.length;
+  if (!n){
+    host.innerHTML = `<div class="nsw-empty">اكتب عدد الشبابيك فوق وهتظهرلك خانات المقاسات لكل شباك.</div>`;
+    return;
+  }
+  host.innerHTML = NSW.list.map((w,i)=>{
+    const f = nswFilled(w), isOpen = (NSW.open === i);
+    const ok = nswCore(w);
+    /* عنوان الكارت: المقاس الأساسي عشان الفني يراجع بسرعة */
+    const ttl = (w.wallWidth || w.winWidth || w.winHeight)
+      ? nswEsc([ (w.wallWidth ? 'حائط ' + w.wallWidth : ''),
+                 (w.winWidth  ? 'شباك ' + w.winWidth  : ''),
+                 (w.winHeight ? '× ' + w.winHeight    : '') ].filter(Boolean).join(' · '))
+      : 'لسه فاضي';
+    return `
+    <div class="nsw-card ${isOpen?'open':''}">
+      <button type="button" class="nsw-hd" onclick="nswToggle(${i})">
+        <span class="nsw-num">${i+1}</span>
+        <span class="nsw-ttl">${ttl}</span>
+        <span class="nsw-badge ${ok?'ok':''}">${f.done}/${f.all}</span>
+        <span class="nsw-arrow">${isOpen?'▲':'▼'}</span>
+      </button>
+      ${isOpen ? `<div class="nsw-body">
+        ${i>0?`<button type="button" class="nsw-copy" onclick="nswCopyPrev(${i})">⧉ انسخ مقاسات شباك ${i}</button>`:''}
+        ${nswShown(w).map(fd=>nswField(i,w,fd)).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function nswField(i, w, f){
+  const v = w[f.k];
+  if (f.type === 'seg'){
+    return `<div class="nsw-fg"><div class="nsw-fl">${f.t}</div>
+      <div class="nsw-seg">${f.opts.map(([val,lab])=>
+        `<button type="button" class="${String(v)===String(val)?'on':''}"
+           onclick="nswSet(${i},'${f.k}',${typeof val==='boolean'?val:`'${val}'`})">${lab}</button>`
+      ).join('')}</div></div>`;
+  }
+  const inp = f.type === 'num'
+    ? `<input class="nsw-in" type="text" inputmode="decimal" dir="ltr" value="${nswEsc(v)}"
+         placeholder="${nswEsc(f.ph||'0.00')}" oninput="nswSet(${i},'${f.k}',this.value,1)">`
+    : `<input class="nsw-in" type="text" value="${nswEsc(v)}"
+         placeholder="${nswEsc(f.ph||'')}" oninput="nswSet(${i},'${f.k}',this.value,1)">`;
+  return `<div class="nsw-fg"><div class="nsw-fl">${f.t}</div>${inp}</div>`;
+}
+
+/* ---------- التفاعل ---------- */
+function nswToggle(i){ NSW.open = (NSW.open === i ? -1 : i); nswRender(); }
+
+function nswSet(i, k, val, keepFocus){
+  if (!NSW.list[i]) return;
+  NSW.list[i][k] = val;
+  if (keepFocus){
+    /* إدخال نص: مش بنعيد الرسم عشان ما نضيّعش الكيبورد — بنحدّث العدّاد بس */
+    const card = document.querySelectorAll('.nsw-card')[i];
+    const b = card && card.querySelector('.nsw-badge');
+    if (b){ const f = nswFilled(NSW.list[i]);
+            b.textContent = f.done + '/' + f.all;
+            b.className = 'nsw-badge' + (nswCore(NSW.list[i]) ? ' ok' : ''); }
+    const t = card && card.querySelector('.nsw-ttl');
+    if (t && (k === 'wallWidth' || k === 'winWidth' || k === 'winHeight')){
+      const w2 = NSW.list[i];
+      t.textContent = (w2.wallWidth || w2.winWidth || w2.winHeight)
+        ? [ (w2.wallWidth ? 'حائط ' + w2.wallWidth : ''),
+            (w2.winWidth  ? 'شباك ' + w2.winWidth  : ''),
+            (w2.winHeight ? '× ' + w2.winHeight    : '') ].filter(Boolean).join(' · ')
+        : 'لسه فاضي';
+    }
+    return;
+  }
+  nswRender();
+}
+
+function nswCopyPrev(i){
+  const prev = NSW.list[i-1]; if (!prev) return;
+  NSW.list[i] = JSON.parse(JSON.stringify(prev));
+  nswRender();
+  try { showToast('⧉ اتنسخت مقاسات شباك ' + i); } catch(e){}
+}
+
+/* عدد الشبابيك اتغيّر — بنزوّد أو نقصّ من غير ما نضيّع اللي اتكتب */
+function nswCount(n){
+  n = Math.max(0, Math.min(40, parseInt(n) || 0));
+  while (NSW.list.length < n) NSW.list.push(nswBlank());
+  if (NSW.list.length > n) NSW.list.length = n;
+  if (NSW.open >= n) NSW.open = n ? n-1 : 0;
+  nswRender();
+  const s = document.getElementById('nsw-sum'); if (s) s.textContent = nswSummary();
+}
+
+function nswSummary(){
+  const n = NSW.list.length;
+  if (!n) return '';
+  const done = NSW.list.filter(nswCore).length;
+  return done === n ? `✅ ${n} شباك — المقاسات كاملة`
+                    : `${done} من ${n} شباك مقاساته كاملة`;
+}
+
+/* بيجهّز المحرّر لمعاينة — بيستدعى وقت فتح المودال */
+function nswLoad(rec){
+  const saved = Array.isArray(rec && rec.windows) ? rec.windows : [];
+  const cnt   = (rec && rec.windows_count) || saved.length || 0;
+  NSW.list = [];
+  for (let i = 0; i < Math.max(cnt, saved.length); i++)
+    NSW.list.push(Object.assign(nswBlank(), saved[i] || {}));
+  NSW.open = NSW.list.length ? 0 : -1;
+  const c = document.getElementById('nsw-count');
+  if (c) c.value = NSW.list.length || '';
+  nswRender();
+  const s = document.getElementById('nsw-sum'); if (s) s.textContent = nswSummary();
+}
+
+/* بيرجّع اللي اتكتب جاهز للحفظ */
+function nswCollect(){
+  return NSW.list.map(w => {
+    const o = {};
+    Object.keys(w).forEach(k => { o[k] = w[k]; });
+    return o;
+  });
+}
+
+/* لو خلّيت الخانات إلزامية: بيرجّع رسالة لو ناقص حاجة، وإلا '' */
+function nswValidate(){
+  if (!NSW_REQUIRED) return '';
+  const bad = [];
+  NSW.list.forEach((w,i)=>{ if(!nswCore(w)) bad.push(i+1); });
+  return bad.length ? 'مقاسات ناقصة في شباك: ' + bad.join('، ') : '';
 }
 
 </script>
