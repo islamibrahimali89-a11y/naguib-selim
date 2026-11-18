@@ -295,6 +295,9 @@ body{background-image:radial-gradient(ellipse at 100% 0%,rgba(37,99,196,0.06) 0%
   font-family:'Cairo',sans-serif;font-weight:700;font-size:0.78rem}
 .nsw-seg button.on{background:linear-gradient(135deg,var(--g2),var(--g3));
   border-color:transparent;color:#fff;box-shadow:0 3px 10px rgba(37,99,196,0.28)}
+/* علامة النسخة في الهيدر — عشان نتأكد بنظرة إن المنشور أحدث نسخة */
+.nsw-ver{font-size:0.62rem;font-weight:700;color:#1e4fa3;background:#eef3ff;
+  border:1px solid rgba(30,79,163,0.18);border-radius:20px;padding:3px 8px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -325,7 +328,7 @@ const CLD_PRESET = 'naguib_selim';
   <div class="app-hdr">
     <div class="hdr-logo"><img src="https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo" alt="نجيب سليم" onerror="this.style.display='none'"></div>
     <div class="hdr-mid"><div class="ht">لوحة الإدارة</div><div class="hs" id="a-datestr"></div></div>
-    <div class="hdr-right"><span class="badge b-admin" id="a-rolebadge">👑 Admin</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
+    <div class="hdr-right"><span class="nsw-ver">v9 · مقاسات الشبابيك</span><span class="badge b-admin" id="a-rolebadge">👑 Admin</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
   </div>
   <div class="content">
     <div class="panel active" id="ap-dash">
@@ -527,7 +530,7 @@ const CLD_PRESET = 'naguib_selim';
   <div class="app-hdr">
     <div class="hdr-logo"><img src="https://res.cloudinary.com/dxfknqbjy/image/upload/v1/naguib_selim/logo" alt="نجيب سليم" onerror="this.style.display='none'"></div>
     <div class="hdr-mid"><div class="ht" id="t-namehdr">الفني</div><div class="hs" id="t-dstr"></div></div>
-    <div class="hdr-right"><span class="badge b-tech">👷 فني</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
+    <div class="hdr-right"><span class="nsw-ver">v9 · مقاسات الشبابيك</span><span class="badge b-tech">👷 فني</span><button class="btn-out" onclick="doLogout()">خروج</button></div>
   </div>
   <div class="content">
     <div class="panel active" id="tp-today">
@@ -592,11 +595,11 @@ const CLD_PRESET = 'naguib_selim';
         <div class="fl">🪟 مقاسات الشبابيك <span style="font-weight:400;color:#94a3b8">(اختياري دلوقتي — بتوفّر على البائع وقت كبير)</span></div>
         <div class="nsw-top">
           <div class="fg"><div class="fl">عدد الشبابيك</div>
-            <input class="fi" id="nsw-count" type="text" inputmode="numeric" dir="ltr"
-                   placeholder="0" oninput="nswCount(this.value)"></div>
-          <div class="nsw-sum" id="nsw-sum"></div>
+            <input class="fi" id="nsw-count-um" type="text" inputmode="numeric" dir="ltr"
+                   placeholder="0" oninput="nswCount(this.value,'um')"></div>
+          <div class="nsw-sum" id="nsw-sum-um"></div>
         </div>
-        <div id="nsw-host"></div>
+        <div id="nsw-host-um"></div>
       </div>
       <div class="fg"><div class="fl">📝 ملاحظات</div><textarea class="fta" id="um-nt" placeholder="ملاحظات المعاينة..."></textarea></div>
       <div class="fg">
@@ -660,7 +663,14 @@ const CLD_PRESET = 'naguib_selim';
           </select>
         </div>
       </div>
-      <div class="fg"><div class="fl">🪟 عدد الشبابيك</div><input class="fi" type="number" id="ae-wins" min="0" placeholder="0"></div>
+      <div class="fg"><div class="fl">🪟 عدد الشبابيك</div>
+        <input class="fi" type="number" id="ae-wins" min="0" placeholder="0"
+               oninput="nswCount(this.value,'ae')"></div>
+      <div class="fg nsw-wrap">
+        <div class="fl">📐 مقاسات الشبابيك <span style="font-weight:400;color:#94a3b8">(نفس خانات الفني — تقدر تعدّلها أو تكمّلها)</span></div>
+        <div class="nsw-sum" id="nsw-sum-ae" style="margin-bottom:8px"></div>
+        <div id="nsw-host-ae"></div>
+      </div>
       <div class="fg"><div class="fl">💳 حالة الدفع</div>
         <select class="fs" id="ae-pay">
           <option value="">-- اختر --</option>
@@ -1800,7 +1810,7 @@ async function openUpdateModal(id) {
     document.getElementById('um-nt').value = r.notes || '';
     document.getElementById('um-savebtn').disabled = false;
     document.getElementById('um-savebtn').textContent = '💾 حفظ (مرفقات فقط)';
-    nswLoad(r);   /* مقاسات الشبابيك — يقدر يكمّلها بعدين */
+    nswLoad(r, 'um');   /* مقاسات الشبابيك — يقدر يكمّلها بعدين */
     document.getElementById('um-info').innerHTML = `
       <div style="background:#f0f4ff;border:1px solid rgba(37,99,196,0.2);border-radius:10px;padding:10px;text-align:center">
         <div style="font-size:0.82rem;color:#1e4fa3;font-weight:600">📎 يمكنك إرفاق ملفات PDF أو صور فقط</div>
@@ -1865,7 +1875,7 @@ async function openUpdateModal(id) {
   document.getElementById('um-savebtn').textContent = '💾 حفظ التحديث';
   document.getElementById('um-st').value = r.status || 'pending';
   document.getElementById('um-nt').value = r.notes || '';
-  nswLoad(r);   /* مقاسات الشبابيك */
+  nswLoad(r, 'um');   /* مقاسات الشبابيك */
 
   // المسافة من موقع الفني لو متاح
   let distInfo = '';
@@ -1951,6 +1961,7 @@ function openAdminEdit(id) {
   document.getElementById('ae-vt').value   = r.visit_time || '';
   document.getElementById('ae-st').value   = r.status || 'pending';
   document.getElementById('ae-wins').value = r.windows_count || '';
+  nswLoad(r, 'ae', 'ae-wins');   /* مقاسات الشبابيك */
   document.getElementById('ae-pay').value  = r.payment_status || '';
   document.getElementById('ae-nt').value   = r.notes || '';
   const msg = document.getElementById('ae-crd-msg'); if (msg) msg.style.display = 'none';
@@ -2008,7 +2019,9 @@ async function saveAdminEdit() {
     tech_user:      techId,
     tech_name:      techUser?.name || r?.tech_name || '',
     status:         newStatus,
-    windows_count:  parseInt(document.getElementById('ae-wins').value) || 0,
+    windows:        nswCollect(),
+    windows_count:  nswCollect().length
+                    || parseInt(document.getElementById('ae-wins').value) || 0,
     payment_status: document.getElementById('ae-pay').value,
     notes:          document.getElementById('ae-nt').value.trim(),
   };
@@ -2853,8 +2866,11 @@ function nswBlank(){
            slope:'no', slopeNote:'', hasBox:true, boxDepth:'', boxHeight:'' };
 }
 
-/* حالة المحرّر الحالي */
-let NSW = { list: [], open: 0 };
+/* حالة المحرّر الحالي — pfx بيحدد المودال: 'um' للفني · 'ae' للأدمن والمشرف */
+let NSW = { list: [], open: 0, pfx: 'um', countId: 'nsw-count-um' };
+const nswHost  = () => document.getElementById('nsw-host-' + NSW.pfx);
+const nswSumEl = () => document.getElementById('nsw-sum-' + NSW.pfx);
+const nswCntEl = () => document.getElementById(NSW.countId);
 
 function nswShown(w){ return NSW_FIELDS.filter(f => !f.when || f.when(w)); }
 
@@ -2880,7 +2896,7 @@ function nswEsc(s){ return String(s == null ? '' : s)
 
 /* ---------- الرسم ---------- */
 function nswRender(){
-  const host = document.getElementById('nsw-host');
+  const host = nswHost();
   if (!host) return;
   const n = NSW.list.length;
   if (!n){
@@ -2937,7 +2953,8 @@ function nswSet(i, k, val, keepFocus){
   NSW.list[i][k] = val;
   if (keepFocus){
     /* إدخال نص: مش بنعيد الرسم عشان ما نضيّعش الكيبورد — بنحدّث العدّاد بس */
-    const card = document.querySelectorAll('.nsw-card')[i];
+    const h = nswHost();
+    const card = h && h.querySelectorAll('.nsw-card')[i];
     const b = card && card.querySelector('.nsw-badge');
     if (b){ const f = nswFilled(NSW.list[i]);
             b.textContent = f.done + '/' + f.all;
@@ -2964,13 +2981,14 @@ function nswCopyPrev(i){
 }
 
 /* عدد الشبابيك اتغيّر — بنزوّد أو نقصّ من غير ما نضيّع اللي اتكتب */
-function nswCount(n){
+function nswCount(n, pfx){
+  if (pfx) NSW.pfx = pfx;
   n = Math.max(0, Math.min(40, parseInt(n) || 0));
   while (NSW.list.length < n) NSW.list.push(nswBlank());
   if (NSW.list.length > n) NSW.list.length = n;
   if (NSW.open >= n) NSW.open = n ? n-1 : 0;
   nswRender();
-  const s = document.getElementById('nsw-sum'); if (s) s.textContent = nswSummary();
+  const s = nswSumEl(); if (s) s.textContent = nswSummary();
 }
 
 function nswSummary(){
@@ -2981,18 +2999,25 @@ function nswSummary(){
                     : `${done} من ${n} شباك مقاساته كاملة`;
 }
 
-/* بيجهّز المحرّر لمعاينة — بيستدعى وقت فتح المودال */
-function nswLoad(rec){
+/* بيجهّز المحرّر لمعاينة — بيستدعى وقت فتح المودال
+   pfx: 'um' مودال الفني · 'ae' مودال الأدمن/المشرف
+   countId: خانة «عدد الشبابيك» الموجودة في المودال ده */
+function nswLoad(rec, pfx, countId){
+  /* بنفضّي حاوية المودال التاني عشان ما يفضلش فيها كروت قديمة */
+  ['um','ae'].forEach(p => { const h = document.getElementById('nsw-host-' + p);
+                             if (h && p !== (pfx || 'um')) h.innerHTML = ''; });
+  NSW.pfx     = pfx || 'um';
+  NSW.countId = countId || ('nsw-count-' + NSW.pfx);
   const saved = Array.isArray(rec && rec.windows) ? rec.windows : [];
   const cnt   = (rec && rec.windows_count) || saved.length || 0;
   NSW.list = [];
   for (let i = 0; i < Math.max(cnt, saved.length); i++)
     NSW.list.push(Object.assign(nswBlank(), saved[i] || {}));
   NSW.open = NSW.list.length ? 0 : -1;
-  const c = document.getElementById('nsw-count');
+  const c = nswCntEl();
   if (c) c.value = NSW.list.length || '';
   nswRender();
-  const s = document.getElementById('nsw-sum'); if (s) s.textContent = nswSummary();
+  const s = nswSumEl(); if (s) s.textContent = nswSummary();
 }
 
 /* بيرجّع اللي اتكتب جاهز للحفظ */
